@@ -1,3 +1,4 @@
 Name:	Frank Lubega
 Position: 	Student
 Course:	Javascript Full Stack Development 
+School:	OUTBOX
