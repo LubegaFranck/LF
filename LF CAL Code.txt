@@ -1,0 +1,3201 @@
+OBJECT Codeunit 51402206 EFRIS - NAV Integration
+{
+  OBJECT-PROPERTIES
+  {
+    Date=04/23/21;
+    Time=[ 6:09:10 PM];
+    Modified=Yes;
+    Version List=DMZ - EFRIS;
+  }
+  PROPERTIES
+  {
+    Permissions=TableData 112=rimd,
+                TableData 114=rimd;
+    OnRun=BEGIN
+          END;
+
+  }
+  CODE
+  {
+
+    PROCEDURE SendToEFRIS@100000001(SalesHeader@100000000 : Record 36;VAR SalesInvoiceHeader@100000031 : Record 112);
+    VAR
+      CompanyInformation@100000001 : Record 79;
+      HttpWebRequestMgt@100000007 : Codeunit 1297;
+      TempBlob@100000006 : Record 99008535;
+      Instr@100000005 : InStream;
+      HttpStatusCode@100000004 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000003 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      JsonArray@100000041 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JArray";
+      itemCount@100000008 : Integer;
+      EFRISSetup@100000009 : Record 51402259;
+      EFRISCodeMapping@100000010 : Record 51402260;
+      StringWriter@100000012 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      JObject@100000039 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      StringBuilder@100000011 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000013 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000016 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000015 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000014 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000017 : Text;
+      Contact@100000018 : Record 5050;
+      Customer@100000019 : Record 18;
+      SalesLine@100000020 : Record 37;
+      computedTax@100000021 : Decimal;
+      Resource@100000022 : Record 156;
+      totalGrossAmount@100000023 : Decimal;
+      totalNetAmount@100000024 : Decimal;
+      totalTaxAmount@100000025 : Decimal;
+      bytes@100000026 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000027 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000028 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000029 : Text;
+      TestFile@100000030 : File;
+      dataExchange@100000032 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000033 : Text;
+      WebException@100000034 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      EncodedJSON@100000035 : BigText;
+      Base64Convert@100000036 : Codeunit 51402208;
+      JString@100000037 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.String";
+      StringBuilderJSON@100000038 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      Text000@100000040 : TextConst 'ENU=Invoice Upload failed because Resource creation failed';
+      Text001@100000042 : TextConst 'ENU=Invoice %1 Upload Failed because of %2';
+      PostedSalesInvHdr@100000043 : Record 112;
+      StringBuilderResponse@100000044 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      Text002@100000045 : TextConst 'ENU=There is no Unit of measure relation for Resource %1';
+      Text003@100000046 : TextConst 'ENU=Resource Name cannot be Empty';
+      Text004@100000047 : TextConst 'ENU=Failed to decode EFRIS Response %1';
+      Text005@100000048 : TextConst 'ENU=Failed to Decompress Response';
+      EncodedBigText@100000049 : BigText;
+      VATProductPostingGroup@100000050 : Record 324;
+      Text006@100000051 : TextConst 'ENU=Tax Rate for %1 does not Exist';
+      orderNo@100000052 : Integer;
+      grossAmount@100000053 : Decimal;
+      netAmount@100000054 : Decimal;
+      unitPrice@100000055 : Decimal;
+      total@100000056 : Decimal;
+      discountAmount@100000057 : Decimal;
+      discountTax@100000058 : Decimal;
+      EFRISCurrencyMapping@100000059 : Record 51402261;
+      VATPostingSetup@100000060 : Record 325;
+      VatPercent@100000061 : Decimal;
+      isDeemed@100000062 : Boolean;
+      GLAccount@100000063 : Record 15;
+      Item@100000064 : Record 27;
+      FixedAsset@100000065 : Record 5600;
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+
+        //Seller Details
+        JSONTextWriter.WritePropertyName('sellerDetails');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('ninBrn','',JSONTextWriter);
+          createJSONAttribute('legalName',CompanyInformation.Name,JSONTextWriter);
+          createJSONAttribute('businessName',CompanyInformation.Name,JSONTextWriter);
+          createJSONAttribute('address',CompanyInformation.Address+' - '+CompanyInformation."Address 2",JSONTextWriter);
+          createJSONAttribute('mobilePhone','',JSONTextWriter);
+          createJSONAttribute('placeOfBusiness','',JSONTextWriter);
+          createJSONAttribute('referenceNo',SalesInvoiceHeader."No.",JSONTextWriter);
+          createJSONAttribute('linePhone',CompanyInformation."Phone No.",JSONTextWriter);
+          createJSONAttribute('emailAddress',CompanyInformation."E-Mail",JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+        //Seller Details End
+
+        //Basic Information
+        //End Basic Information
+        JSONTextWriter.WritePropertyName('basicInformation');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('invoiceNo','',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('antifakeCode','',JSONTextWriter);
+          EFRISCurrencyMapping.RESET;
+          EFRISCurrencyMapping.SETRANGE("System Code", SalesHeader."Currency Code");
+          IF EFRISCurrencyMapping.FINDFIRST THEN
+            createJSONAttribute('currency',EFRISCurrencyMapping."URA Code",JSONTextWriter)
+          ELSE
+            createJSONAttribute('currency',EFRISSetup."Upload Invoice Curr Code",JSONTextWriter);
+          createJSONAttribute('issuedDate',FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>'),JSONTextWriter);
+          createJSONAttribute('operator',USERID,JSONTextWriter);
+          createJSONAttribute('oriInvoiceId','',JSONTextWriter);
+          createJSONAttribute('invoiceKind',EFRISSetup."Invoice Kind",JSONTextWriter);
+          createJSONAttribute('invoiceType',EFRISSetup."Invoice Type",JSONTextWriter);
+          createJSONAttribute('dataSource',EFRISSetup."Data Source",JSONTextWriter);
+          Customer.RESET;
+          Customer.SETRANGE("No.",SalesHeader."Bill-to Customer No.");
+          IF Customer.FINDFIRST THEN BEGIN
+            IF Customer."Customer Type" = Customer."Customer Type"::Foreigner THEN
+              createJSONAttribute('invoiceIndustryCode','102',JSONTextWriter)
+            ELSE
+              createJSONAttribute('invoiceIndustryCode','101',JSONTextWriter)
+          END;
+        JSONTextWriter.WriteEndObject;
+
+        //Buyer Information
+        JSONTextWriter.WritePropertyName('buyerDetails');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('buyerLegalName',SalesHeader."Sell-to Customer Name",JSONTextWriter);
+          createJSONAttribute('buyerAddress',SalesHeader."Sell-to Address"+' - '+SalesHeader."Sell-to Address 2",JSONTextWriter);
+          Customer.RESET;
+          Customer.SETRANGE("No.",SalesHeader."Bill-to Customer No.");
+          IF Customer.FINDFIRST THEN BEGIN
+            createJSONAttribute('buyerEmail',Customer."E-Mail",JSONTextWriter);
+          END;
+          Contact.RESET;
+          Contact.SETRANGE("No.",SalesHeader."Bill-to Contact No.");
+          IF Contact.FINDFIRST THEN
+            createJSONAttribute('buyerLinePhone',Contact."Phone No.",JSONTextWriter)
+          ELSE
+            createJSONAttribute('buyerLinePhone','',JSONTextWriter);
+
+          createJSONAttribute('buyerNinBrn','',JSONTextWriter);
+          createJSONAttribute('buyerPassportNum','',JSONTextWriter);
+          createJSONAttribute('buyerBusinessName','',JSONTextWriter);
+
+          Contact.RESET;
+          Contact.SETRANGE("No.",SalesHeader."Bill-to Contact No.");
+          IF Contact.FINDFIRST THEN
+            createJSONAttribute('buyerMobilePhone',Contact."Phone No.",JSONTextWriter)
+          ELSE
+            createJSONAttribute('buyerMobilePhone','',JSONTextWriter);
+
+          createJSONAttribute('buyerPlaceOfBusi','',JSONTextWriter);
+          createJSONAttribute('buyerCitizenship','',JSONTextWriter);
+          createJSONAttribute('buyerSector','',JSONTextWriter);
+          createJSONAttribute('buyerReferenceNo','',JSONTextWriter);
+
+          Customer.RESET;
+          Customer.SETRANGE("No.", SalesHeader."Bill-to Customer No.");
+          IF Customer.FINDFIRST THEN BEGIN
+            CASE Customer."Customer Type" OF
+              Customer."Customer Type"::B2C:
+                BEGIN
+                  createJSONAttribute('buyerType','1',JSONTextWriter);
+                END;
+              Customer."Customer Type"::B2B:
+                BEGIN
+                  Customer.TESTFIELD(Customer.TIN);
+                  createJSONAttribute('buyerTin',Customer.TIN,JSONTextWriter);
+                  createJSONAttribute('buyerType','0',JSONTextWriter);
+                END;
+              Customer."Customer Type"::B2G:
+                BEGIN
+                  Customer.TESTFIELD(TIN);
+                  createJSONAttribute('buyerTin',Customer.TIN,JSONTextWriter);
+                  createJSONAttribute('buyerType','0',JSONTextWriter);
+                END;
+              Customer."Customer Type"::Foreigner:
+                BEGIN
+                  createJSONAttribute('buyerType','2',JSONTextWriter);
+                END;
+            END;
+          END;
+        JSONTextWriter.WriteEndObject;
+        //End Buyer Information
+
+        //Goods Details
+        SalesLine.RESET;
+        orderNo := 0;
+        SalesLine.SETRANGE("Document No.",SalesHeader."No.");
+        SalesLine.SETFILTER("No.",'<>%1','');
+        SalesLine.SETFILTER("Qty. to Invoice", '<>%1', 0);
+        SalesLine.SETFILTER("Unit Price", '<>%1', 0);
+        IF SalesLine.FINDSET THEN BEGIN
+          JSONTextWriter.WritePropertyName('goodsDetails');
+          JSONTextWriter.WriteStartArray;
+            itemCount := 0;
+            REPEAT
+              IF SalesLine."Line Discount %" <> 0 THEN BEGIN
+                JSONTextWriter.WriteStartObject;
+                  createJSONAttribute('itemCode',SalesLine."No.",JSONTextWriter);
+                  createJSONAttribute('qty',DELCHR(FORMAT(SalesLine."Qty. to Invoice"),'=',','),JSONTextWriter);
+                  VATPostingSetup.RESET;
+                  VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+                  VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+                  IF VATPostingSetup.FINDFIRST THEN BEGIN
+                    VatPercent := VATPostingSetup."VAT %";
+                    isDeemed := VATPostingSetup.Deemed;
+                    createJSONAttribute('taxRate',FORMAT(VATPostingSetup."Tax Rate"),JSONTextWriter)
+                  END ELSE BEGIN
+                    ERROR(Text006, SalesLine."VAT Prod. Posting Group");
+                  END;
+                  CASE SalesLine.Type OF
+                    SalesLine.Type::"G/L Account":
+                      BEGIN
+                      GLAccount.RESET;
+                      GLAccount.SETRANGE("No.",SalesLine."No.");
+                      IF GLAccount.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',GLAccount.Name+'  (Deemed)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',GLAccount.Name,JSONTextWriter);
+                      END;
+                    SalesLine.Type::Item:
+                      BEGIN
+                        Item.RESET;
+                        Item.SETRANGE("No.",SalesLine."No.");
+                        IF Item.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',Item.Description+' (Deemed)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',Item.Description,JSONTextWriter);
+                      END;
+                    SalesLine.Type::Resource:
+                      BEGIN
+                        Resource.RESET;
+                        Resource.SETRANGE("No.",SalesLine."No.");
+                        IF Resource.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',Resource.Name+'  (Deemed)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',Resource.Name,JSONTextWriter);
+                      END;
+                    SalesLine.Type::"Fixed Asset":
+                      BEGIN
+                        FixedAsset.RESET;
+                        FixedAsset.SETRANGE("No.",SalesLine."No.");
+                        IF FixedAsset.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',FixedAsset.Description+'  (Deemed)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',FixedAsset.Description,JSONTextWriter);
+                      END;
+                  END;
+                  unitPrice := 0;
+                  unitPrice := ROUND(SalesLine."Unit Price", 0.01,'=');
+                  computedTax := 0;
+                  computedTax := (unitPrice * SalesLine."Qty. to Invoice") / ( 1 + (SalesLine."VAT %"/100));
+                  computedTax := (unitPrice * SalesLine."Qty. to Invoice") - ROUND(computedTax, 0.01, '=');
+                  IF VatPercent = 0 THEN
+                    computedTax := 0;
+                  createJSONAttribute('tax',FORMAT(computedTax, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                  createJSONAttribute('orderNumber',FORMAT(orderNo),JSONTextWriter);
+                  EFRISCodeMapping.RESET;
+                  EFRISCodeMapping.SETRANGE("System Code", SalesLine."Unit of Measure Code");
+                  IF EFRISCodeMapping.FINDFIRST THEN
+                    createJSONAttribute('unitOfMeasure',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+                  ELSE
+                    ERROR(Text002,SalesLine."No.");
+                  createJSONAttribute('discountFlag',FORMAT(1),JSONTextWriter);
+                  createJSONAttribute('unitPrice',FORMAT(unitPrice, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                  total := 0;
+                  total := ROUND((unitPrice * SalesLine."Qty. to Invoice"), 0.01, '=');
+
+                  createJSONAttribute('total',FORMAT(total, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                  discountAmount := 0;
+                  discountAmount := ROUND(((SalesLine."Line Discount %"/100) * total), 0.01, '=');
+                  createJSONAttribute('discountTotal',FORMAT(discountAmount * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                  createJSONAttribute('discountTaxRate','',JSONTextWriter);
+                  createJSONAttribute('exciseRate','',JSONTextWriter);
+                  createJSONAttribute('exciseTax','',JSONTextWriter);
+                  createJSONAttribute('exciseUnit','',JSONTextWriter);
+                  createJSONAttribute('exciseCurrency','',JSONTextWriter);
+                  createJSONAttribute('exciseRateName','',JSONTextWriter);
+                  IF isDeemed = TRUE THEN
+                    createJSONAttribute('deemedFlag',FORMAT(1),JSONTextWriter)
+                  ELSE
+                    createJSONAttribute('deemedFlag',FORMAT(2),JSONTextWriter);
+                  CASE SalesLine.Type OF
+                    SalesLine.Type::Resource:
+                      BEGIN
+                        Resource.RESET;
+                        Resource.SETRANGE("No.",SalesLine."No.");
+                        IF Resource.FINDFIRST THEN BEGIN
+                          IF Resource."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',Resource."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',Resource."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::Item:
+                      BEGIN
+                        Item.RESET;
+                        Item.SETRANGE("No.",SalesLine."No.");
+                        IF Item.FINDFIRST THEN BEGIN
+                          IF Item."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',Item."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',Item."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::"G/L Account":
+                      BEGIN
+                        GLAccount.RESET;
+                        GLAccount.SETRANGE("No.",SalesLine."No.");
+                        IF GLAccount.FINDFIRST THEN BEGIN
+                          IF GLAccount."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',GLAccount."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',GLAccount."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::"Fixed Asset":
+                      BEGIN
+                        FixedAsset.RESET;
+                        FixedAsset.SETRANGE("No.",SalesLine."No.");
+                        IF FixedAsset.FINDFIRST THEN
+                          IF FixedAsset."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.")
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',FixedAsset."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',FixedAsset."Goods Category Name",JSONTextWriter);
+                          END;
+                      END;
+                  END;
+                  createJSONAttribute('exciseFlag',FORMAT(2),JSONTextWriter);
+                  createJSONAttribute('pack','',JSONTextWriter);
+                  createJSONAttribute('stick','',JSONTextWriter);
+                  orderNo := orderNo + 1;
+                JSONTextWriter.WriteEndObject;
+
+                JSONTextWriter.WriteStartObject;
+                  createJSONAttribute('itemCode',SalesLine."No.",JSONTextWriter);
+                  createJSONAttribute('qty','',JSONTextWriter);
+                  VATPostingSetup.RESET;
+                  VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+                  VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+                  IF VATPostingSetup.FINDFIRST THEN BEGIN
+                    VatPercent := VATPostingSetup."VAT %";
+                    isDeemed := VATPostingSetup.Deemed;
+                    createJSONAttribute('taxRate',FORMAT(VATPostingSetup."Tax Rate"),JSONTextWriter)
+                  END ELSE BEGIN
+                    ERROR(Text006, SalesLine."VAT Prod. Posting Group");
+                  END;
+                    CASE SalesLine.Type OF
+                    SalesLine.Type::"G/L Account":
+                      BEGIN
+                      GLAccount.RESET;
+                      GLAccount.SETRANGE("No.",SalesLine."No.");
+                      IF GLAccount.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',GLAccount.Name+' (Deemed) (Discount)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',GLAccount.Name+' (Discount)',JSONTextWriter);
+                      END;
+                    SalesLine.Type::Item:
+                      BEGIN
+                        Item.RESET;
+                        Item.SETRANGE("No.",SalesLine."No.");
+                        IF Item.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',Item.Description+' (Deemed) (Discount)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',Item.Description+' (Discount)',JSONTextWriter);
+                      END;
+                    SalesLine.Type::Resource:
+                      BEGIN
+                        Resource.RESET;
+                        Resource.SETRANGE("No.",SalesLine."No.");
+                        IF Resource.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',Resource.Name+' (Deemed) (Discount)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',Resource.Name+' (Discount)',JSONTextWriter);
+                      END;
+                    SalesLine.Type::"Fixed Asset":
+                      BEGIN
+                        FixedAsset.RESET;
+                        FixedAsset.SETRANGE("No.",SalesLine."No.");
+                        IF FixedAsset.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',FixedAsset.Description+'  (Deemed) (Discount)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',FixedAsset.Description,JSONTextWriter);
+                      END;
+
+                  END;
+                  discountAmount := 0;
+                  discountAmount := ROUND(((SalesLine."Line Discount %"/100) * total), 0.01, '=');
+                  discountTax := 0;
+                  discountTax := discountAmount / (1 + (SalesLine."VAT %"/100));
+                  discountTax := discountAmount - ROUND(discountTax, 0.01, '=');
+                  IF VatPercent = 0 THEN
+                    discountTax := 0;
+                  createJSONAttribute('tax',FORMAT(discountTax * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                  createJSONAttribute('orderNumber',FORMAT(orderNo),JSONTextWriter);
+                  //DMZ Check Unit of Measure
+                  EFRISCodeMapping.RESET;
+                  EFRISCodeMapping.SETRANGE("System Code", SalesLine."Unit of Measure Code");
+                  IF EFRISCodeMapping.FINDFIRST THEN
+                    createJSONAttribute('unitOfMeasure',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+                  ELSE
+                    ERROR(Text002,SalesLine."No.");
+                  createJSONAttribute('discountFlag',FORMAT(0),JSONTextWriter);
+                  createJSONAttribute('total',FORMAT(discountAmount * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                  createJSONAttribute('discountTotal','',JSONTextWriter);
+                  createJSONAttribute('discountTaxRate','',JSONTextWriter);
+                  createJSONAttribute('exciseRate','',JSONTextWriter);
+                  createJSONAttribute('exciseTax','',JSONTextWriter);
+                  createJSONAttribute('exciseUnit','',JSONTextWriter);
+                  createJSONAttribute('exciseCurrency','',JSONTextWriter);
+                  createJSONAttribute('exciseRateName','',JSONTextWriter);
+                  IF isDeemed = TRUE THEN
+                    createJSONAttribute('deemedFlag',FORMAT(1),JSONTextWriter)
+                  ELSE
+                    createJSONAttribute('deemedFlag',FORMAT(2),JSONTextWriter);
+                  CASE SalesLine.Type OF
+                    SalesLine.Type::Resource:
+                      BEGIN
+                        Resource.RESET;
+                        Resource.SETRANGE("No.",SalesLine."No.");
+                        IF Resource.FINDFIRST THEN BEGIN
+                          IF Resource."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',Resource."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',Resource."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::Item:
+                      BEGIN
+                        Item.RESET;
+                        Item.SETRANGE("No.",SalesLine."No.");
+                        IF Item.FINDFIRST THEN BEGIN
+                          IF Item."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',Item."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',Item."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::"G/L Account":
+                      BEGIN
+                        GLAccount.RESET;
+                        GLAccount.SETRANGE("No.",SalesLine."No.");
+                        IF GLAccount.FINDFIRST THEN BEGIN
+                          IF GLAccount."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',GLAccount."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',GLAccount."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::"Fixed Asset":
+                      BEGIN
+                        FixedAsset.RESET;
+                        FixedAsset.SETRANGE("No.",SalesLine."No.");
+                        IF FixedAsset.FINDFIRST THEN
+                          IF FixedAsset."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.")
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',FixedAsset."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',FixedAsset."Goods Category Name",JSONTextWriter);
+                          END;
+                      END;
+                  END;
+                  createJSONAttribute('exciseFlag',FORMAT(2),JSONTextWriter);
+                  createJSONAttribute('pack','',JSONTextWriter);
+                  createJSONAttribute('stick','',JSONTextWriter);
+                  orderNo := orderNo + 1;
+                JSONTextWriter.WriteEndObject;
+                itemCount := itemCount + 1;
+
+
+              END ELSE BEGIN
+
+                JSONTextWriter.WriteStartObject;
+                  createJSONAttribute('itemCode',SalesLine."No.",JSONTextWriter);
+                  createJSONAttribute('qty',DELCHR(FORMAT(SalesLine."Qty. to Invoice"),'=',','),JSONTextWriter);
+                  VATPostingSetup.RESET;
+                  VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+                  VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+                  IF VATPostingSetup.FINDFIRST THEN BEGIN
+                    createJSONAttribute('taxRate',FORMAT(VATPostingSetup."Tax Rate"),JSONTextWriter);
+                    isDeemed := VATPostingSetup.Deemed;
+                    VatPercent := VATPostingSetup."VAT %";
+                  END ELSE BEGIN
+                    ERROR(Text006, SalesLine."VAT Prod. Posting Group");
+                  END;
+                    CASE SalesLine.Type OF
+                    SalesLine.Type::"G/L Account":
+                      BEGIN
+                      GLAccount.RESET;
+                      GLAccount.SETRANGE("No.",SalesLine."No.");
+                      IF GLAccount.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',GLAccount.Name+' (Deemed)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',GLAccount.Name,JSONTextWriter);
+                      END;
+                    SalesLine.Type::Item:
+                      BEGIN
+                        Item.RESET;
+                        Item.SETRANGE("No.",SalesLine."No.");
+                        IF Item.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',Item.Description+' (Deemed)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',Item.Description,JSONTextWriter);
+                      END;
+                    SalesLine.Type::Resource:
+                      BEGIN
+                        Resource.RESET;
+                        Resource.SETRANGE("No.",SalesLine."No.");
+                        IF Resource.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',Resource.Name+' (Deemed)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',Resource.Name,JSONTextWriter);
+                      END;
+                    SalesLine.Type::"Fixed Asset":
+                      BEGIN
+                        FixedAsset.RESET;
+                        FixedAsset.SETRANGE("No.",SalesLine."No.");
+                        IF FixedAsset.FINDFIRST THEN
+                          IF isDeemed = TRUE THEN
+                            createJSONAttribute('item',FixedAsset.Description+'  (Deemed)',JSONTextWriter)
+                          ELSE
+                            createJSONAttribute('item',FixedAsset.Description,JSONTextWriter);
+                      END;
+                  END;
+                  computedTax := 0;
+                  unitPrice := 0;
+                  unitPrice := ROUND(SalesLine."Unit Price",0.01, '=');
+                  computedTax := (unitPrice * SalesLine."Qty. to Invoice") / ( 1 + (SalesLine."VAT %"/100));
+                  computedTax := (unitPrice * SalesLine."Qty. to Invoice") - computedTax;
+                  IF VatPercent = 0 THEN
+                    computedTax := 0;
+                  createJSONAttribute('tax',FORMAT(computedTax, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                  createJSONAttribute('orderNumber',FORMAT(orderNo),JSONTextWriter);
+                  //DMZ Check Unit of Measure
+                  EFRISCodeMapping.RESET;
+                  EFRISCodeMapping.SETRANGE("System Code", SalesLine."Unit of Measure Code");
+                  IF EFRISCodeMapping.FINDFIRST THEN
+                    createJSONAttribute('unitOfMeasure',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+                  ELSE
+                    ERROR(Text002,SalesLine."No.");
+                  createJSONAttribute('discountFlag',FORMAT(2),JSONTextWriter);
+                  createJSONAttribute('unitPrice',FORMAT(unitPrice, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                  total := (unitPrice * SalesLine."Qty. to Invoice");
+                  createJSONAttribute('total',FORMAT(total, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                  createJSONAttribute('discountTotal','',JSONTextWriter);
+                  createJSONAttribute('discountTaxRate','',JSONTextWriter);
+                  createJSONAttribute('exciseRate','',JSONTextWriter);
+                  createJSONAttribute('exciseTax','',JSONTextWriter);
+                  createJSONAttribute('exciseUnit','',JSONTextWriter);
+                  createJSONAttribute('exciseCurrency','',JSONTextWriter);
+                  createJSONAttribute('exciseRateName','',JSONTextWriter);
+                  IF isDeemed = TRUE THEN
+                    createJSONAttribute('deemedFlag',FORMAT(1),JSONTextWriter)
+                  ELSE
+                    createJSONAttribute('deemedFlag',FORMAT(2),JSONTextWriter);
+                  CASE SalesLine.Type OF
+                    SalesLine.Type::Resource:
+                      BEGIN
+                        Resource.RESET;
+                        Resource.SETRANGE("No.",SalesLine."No.");
+                        IF Resource.FINDFIRST THEN BEGIN
+                          IF Resource."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',Resource."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',Resource."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::Item:
+                      BEGIN
+                        Item.RESET;
+                        Item.SETRANGE("No.",SalesLine."No.");
+                        IF Item.FINDFIRST THEN BEGIN
+                          IF Item."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',Item."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',Item."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::"G/L Account":
+                      BEGIN
+                        GLAccount.RESET;
+                        GLAccount.SETRANGE("No.",SalesLine."No.");
+                        IF GLAccount.FINDFIRST THEN BEGIN
+                          IF GLAccount."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',GLAccount."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',GLAccount."Goods Category Name",JSONTextWriter);
+                          END;
+                        END;
+                      END;
+                    SalesLine.Type::"Fixed Asset":
+                      BEGIN
+                        FixedAsset.RESET;
+                        FixedAsset.SETRANGE("No.",SalesLine."No.");
+                        IF FixedAsset.FINDFIRST THEN
+                          IF FixedAsset."Commodity Category Id" = '' THEN BEGIN
+                            ERROR(Text000, SalesLine.Type, SalesLine."No.")
+                          END ELSE BEGIN
+                            createJSONAttribute('goodsCategoryId',FixedAsset."Goods Category Id",JSONTextWriter);
+                            createJSONAttribute('goodsCategoryName',FixedAsset."Goods Category Name",JSONTextWriter);
+                          END;
+                      END;
+                  END;
+                  createJSONAttribute('exciseFlag',FORMAT(2),JSONTextWriter);
+                  createJSONAttribute('pack','',JSONTextWriter);
+                  createJSONAttribute('stick','',JSONTextWriter);
+                  orderNo := orderNo + 1;
+                JSONTextWriter.WriteEndObject;
+                itemCount := itemCount + 1;
+
+              END;
+            UNTIL SalesLine.NEXT = 0;
+          JSONTextWriter.WriteEndArray;
+        END;
+        //End Goods Details
+
+        //Tax Details
+        computedTax := 0;
+        SalesLine.RESET;
+        grossAmount := 0;
+        netAmount := 0;
+        totalGrossAmount := 0;
+        totalNetAmount := 0;
+        totalTaxAmount := 0;
+        SalesLine.SETRANGE("Document No.",SalesHeader."No.");
+        SalesLine.SETFILTER("No.",'<>%1','');
+        IF SalesLine.FINDSET THEN BEGIN
+          JSONTextWriter.WritePropertyName('taxDetails');
+          JSONTextWriter.WriteStartArray;
+            REPEAT
+              JSONTextWriter.WriteStartObject;
+                unitPrice:= 0;
+                unitPrice := ROUND(SalesLine."Unit Price", 0.01,'=');
+                computedTax := (unitPrice * SalesLine."Qty. to Invoice") / (1 + (SalesLine."VAT %"/100));
+                computedTax := (unitPrice * SalesLine."Qty. to Invoice") - ROUND(computedTax,0.01,'=');
+                total := 0;
+                total := (unitPrice * SalesLine."Qty. to Invoice");
+                discountAmount := 0;
+                discountAmount := ROUND(((SalesLine."Line Discount %"/100) * total), 0.01, '=');
+                discountTax := 0;
+                discountTax := discountAmount / (1 + (SalesLine."VAT %"/100));
+                discountTax := discountAmount - ROUND(discountTax, 0.01, '=');
+                VATPostingSetup.RESET;
+                VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+                VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+                IF VATPostingSetup.FINDFIRST THEN BEGIN
+                  VATPostingSetup.TESTFIELD(VATPostingSetup."Tax Rate");
+                  VATPostingSetup.TESTFIELD(VATPostingSetup."Tax Rate Name");
+                  VATPostingSetup.TESTFIELD(VATPostingSetup."Tax Category Name");
+                  VatPercent := VATPostingSetup."VAT %";
+                  createJSONAttribute('taxRate',FORMAT(VATPostingSetup."Tax Rate"),JSONTextWriter);
+                  createJSONAttribute('taxCategory',FORMAT(VATPostingSetup."Tax Category Name"),JSONTextWriter);
+                  createJSONAttribute('taxRateName',FORMAT(VATPostingSetup."Tax Rate Name"),JSONTextWriter);
+                END;
+                IF VatPercent = 0 THEN BEGIN
+                  discountTax := 0;
+                  computedTax := 0;
+                END;
+                createJSONAttribute('exciseUnit','',JSONTextWriter);
+                grossAmount := (unitPrice * SalesLine."Qty. to Invoice") - discountAmount;
+                createJSONAttribute('grossAmount',FORMAT(grossAmount, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('taxAmount',FORMAT(computedTax - discountTax, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('netAmount',FORMAT(grossAmount - (computedTax - discountTax), 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('exciseCurrency','',JSONTextWriter);
+              JSONTextWriter.WriteEndObject;
+            UNTIL SalesLine.NEXT = 0;
+          JSONTextWriter.WriteEndArray;
+        END;
+        //End Tax Details
+
+        //Summary
+        SalesHeader.CALCFIELDS(Amount);
+        SalesHeader.CALCFIELDS("Amount Including VAT");
+        totalGrossAmount := 0;
+        totalNetAmount := 0;
+        totalTaxAmount := 0;
+        computedTax := 0;
+        grossAmount := 0;
+        SalesLine.RESET;
+        SalesLine.SETRANGE("Document No.",SalesHeader."No.");
+        SalesLine.SETFILTER("No.",'<>%1','');
+        IF SalesLine.FINDSET THEN BEGIN
+          REPEAT
+            VATPostingSetup.RESET;
+            VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+            VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+            IF VATPostingSetup.FINDFIRST THEN BEGIN
+              VatPercent := VATPostingSetup."VAT %";
+              isDeemed := VATPostingSetup.Deemed;
+            END;
+            unitPrice:= 0;
+            unitPrice := ROUND(SalesLine."Unit Price", 0.01,'=');
+            total := 0;
+            total := (unitPrice * SalesLine."Qty. to Invoice");
+            computedTax := (unitPrice * SalesLine."Qty. to Invoice") / (1 + (SalesLine."VAT %"/100));
+            computedTax := (unitPrice * SalesLine."Qty. to Invoice") - ROUND(computedTax,0.01,'=');
+            discountAmount := 0;
+            discountAmount := ROUND(((SalesLine."Line Discount %"/100) * total), 0.01, '=');
+            discountTax := 0;
+            discountTax := discountAmount / (1 + (SalesLine."VAT %"/100));
+            discountTax := discountAmount - ROUND(discountTax, 0.01, '=');
+            IF VatPercent = 0 THEN BEGIN
+              discountTax := 0;
+              computedTax := 0;
+            END;
+            grossAmount := (unitPrice * SalesLine."Qty. to Invoice") - discountAmount;
+            totalGrossAmount := totalGrossAmount + ROUND(grossAmount, 0.01, '=');
+            computedTax := (unitPrice * SalesLine."Qty. to Invoice") / (1 + (SalesLine."VAT %" / 100));
+            computedTax := (unitPrice * SalesLine."Qty. to Invoice") -  ROUND(computedTax, 0.01,'=');
+            totalTaxAmount := totalTaxAmount + ROUND((computedTax - discountTax), 0.01,'=');
+            totalNetAmount := totalNetAmount + (ROUND(grossAmount, 0.01, '=') - ROUND((computedTax - discountTax), 0.01,'='));    UNTIL SalesLine.NEXT = 0;
+          JSONTextWriter.WritePropertyName('summary');
+          JSONTextWriter.WriteStartObject;
+          IF isDeemed = TRUE THEN BEGIN
+            totalTaxAmount := 0;
+            totalGrossAmount := totalNetAmount;
+          END;
+          createJSONAttribute('netAmount',FORMAT(totalNetAmount, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+          createJSONAttribute('taxAmount',FORMAT(totalTaxAmount, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+          createJSONAttribute('grossAmount',FORMAT(totalGrossAmount, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+          createJSONAttribute('itemCount',FORMAT(itemCount),JSONTextWriter);
+          createJSONAttribute('modeCode',FORMAT(EFRISSetup."Mode Code"),JSONTextWriter);
+          createJSONAttribute('remarks',SalesHeader."Posting Description",JSONTextWriter);
+          createJSONAttribute('qrCode','',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        END;
+        //End Summary
+
+        SalesHeader.CALCFIELDS("Amount Including VAT");
+        //Payway
+        SalesLine.RESET;
+        SalesLine.SETRANGE("Document No.",SalesHeader."No.");
+        SalesLine.SETFILTER("No.",'<>%1','');
+        IF SalesLine.FINDSET THEN BEGIN
+          JSONTextWriter.WritePropertyName('payWay');
+          JSONTextWriter.WriteStartArray;
+          //REPEAT
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('paymentMode',FORMAT(101),JSONTextWriter);
+          createJSONAttribute('paymentAmount',DELCHR(FORMAT(totalGrossAmount), '=',','),JSONTextWriter);
+          createJSONAttribute('orderNumber',FORMAT(0),JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+          //UNTIL SalesLine.NEXT = 0;
+          JSONTextWriter.WriteEndArray;
+
+        END;
+        //End Payway
+
+        //Extend
+        JSONTextWriter.WritePropertyName('extend');
+        JSONTextWriter.WriteStartObject;
+        createJSONAttribute('reason','',JSONTextWriter);
+        createJSONAttribute('reasonCode','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+        //End Extend
+
+        JSONTextWriter.WriteEndObject;
+      //StringBuilderJSON := StringBuilderJSON.StringBuilder;
+      //StringBuilderJSON.Append(Base64Convert.TextToBase64String(StringBuilder.ToString));
+
+      FileName := TEMPORARYPATH +'InvoiceRequest.txt';
+      //MESSAGE(FileName);
+      IF EXISTS(FileName) THEN BEGIN
+        TestFile.WRITEMODE(TRUE);
+        TestFile.OPEN(FileName);
+        TestFile.WRITE(StringBuilder.ToString);
+        TestFile.CLOSE;
+      END ELSE BEGIN
+        MESSAGE('%1 does not exist.', FileName);
+        TestFile.CREATE(FileName);
+      END;
+
+      JSON := StringBuilder.ToString;
+      //MESSAGE(JSON);
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+
+      HttpWebRequestMgt.Initialize(EFRISSetup."Base64 Encode API");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+      HttpWebRequestMgt.AddBodyAsAsciiText(JSON);
+
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+        CLEAR(JObject);
+
+        JSONTextWriter.WriteStartObject;
+          JSONTextWriter.WritePropertyName('data');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('content',ApiResult,JSONTextWriter);
+            createJSONAttribute('signature','',JSONTextWriter);
+            JSONTextWriter.WritePropertyName('dataDescription');
+            JSONTextWriter.WriteStartObject;
+              createJSONAttribute('codeType','0',JSONTextWriter);
+              createJSONAttribute('encryptCode','0',JSONTextWriter);
+              createJSONAttribute('zipCode','0',JSONTextWriter);
+            JSONTextWriter.WriteEndObject;
+          JSONTextWriter.WriteEndObject;
+
+          JSONTextWriter.WritePropertyName('globalInfo');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+            dataExchange := CREATEGUID;
+            dataExchange := DELCHR(dataExchange, '=', '{}-01');
+            dataExchange := COPYSTR(dataExchange, 1, 15);
+            createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+            createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+            createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+            createJSONAttribute('interfaceCode',EFRISSetup."Invoice Upload Interface Code",JSONTextWriter);
+            TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+            createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+            createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+            createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+            createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+            createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+            createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+            createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+            createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+            createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+            JSONTextWriter.WritePropertyName('extent');
+              JSONTextWriter.WriteStartObject;
+              createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+              createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+            JSONTextWriter.WriteEndObject;
+          JSONTextWriter.WriteEndObject;
+          JSONTextWriter.WritePropertyName('returnStateInfo');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('returnCode','',JSONTextWriter);
+            createJSONAttribute('returnMessage','',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WriteEndObject;
+
+        HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+        HttpWebRequestMgt.DisableUI;
+        HttpWebRequestMgt.SetMethod('POST');
+        HttpWebRequestMgt.SetContentType('application/json');
+        HttpWebRequestMgt.SetReturnType('application/json');
+        HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+
+        TempBlob.INIT;
+        TempBlob.Blob.CREATEINSTREAM(Instr);
+        IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+          ApiResult := TempBlob.ReadAsText('');
+          JObject:= JObject.Parse(ApiResult);
+          StringBuilderResponse := StringBuilderResponse.StringBuilder;
+          StringBuilderResponse.Append(ApiResult);
+
+
+          IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+            IF FORMAT(JObject.SelectToken('data.dataDescription.zipCode')) = '1' THEN BEGIN
+
+              HttpWebRequestMgt.Initialize(EFRISSetup."Decompress API");
+              HttpWebRequestMgt.DisableUI;
+              HttpWebRequestMgt.SetMethod('POST');
+              HttpWebRequestMgt.SetContentType('application/json');
+              HttpWebRequestMgt.SetReturnType('application/json');
+              HttpWebRequestMgt.AddBodyAsAsciiText(FORMAT(JObject.SelectToken('data.content')));
+
+              TempBlob.INIT;
+              TempBlob.Blob.CREATEINSTREAM(Instr);
+              IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+                ApiResult := TempBlob.ReadAsText('');
+                CLEAR(JObject);
+                JObject:= JObject.Parse(ApiResult);
+                SalesInvoiceHeader."QR Code" := FORMAT(JObject.SelectToken('summary.qrCode'));
+                SalesInvoiceHeader."URA Invoice Id" := FORMAT(JObject.SelectToken('basicInformation.invoiceId'));
+                SalesInvoiceHeader."Anti-Fake Code" := FORMAT(JObject.SelectToken('basicInformation.antifakeCode'));
+                SalesInvoiceHeader."URA Invoice No." := FORMAT(JObject.SelectToken('basicInformation.invoiceNo'));
+                SalesInvoiceHeader.MODIFY;
+              END ELSE BEGIN
+                ERROR(Text005);
+              END;
+            END ELSE BEGIN
+              JObject:= JObject.Parse(ApiResult);
+              JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+              CLEAR(JObject);
+              JObject:= JObject.Parse(JSON);
+              SalesInvoiceHeader."QR Code" := FORMAT(JObject.SelectToken('summary.qrCode'));
+              SalesInvoiceHeader."URA Invoice Id" := FORMAT(JObject.SelectToken('basicInformation.invoiceId'));
+              SalesInvoiceHeader."Anti-Fake Code" := FORMAT(JObject.SelectToken('basicInformation.antifakeCode'));
+              SalesInvoiceHeader."URA Invoice No." := FORMAT(JObject.SelectToken('basicInformation.invoiceNo'));
+              SalesInvoiceHeader.MODIFY;
+            END;
+          END ELSE BEGIN
+            IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '2253' THEN BEGIN
+             // GetEfrisDetails(SalesInvoiceHeader);
+            END ELSE BEGIN
+              ERROR(Text001,SalesHeader."No.",FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+            END;
+          END;
+        END ELSE BEGIN
+          ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    LOCAL PROCEDURE createJSONAttribute@87(AttributeName@1004 : Text;value@1003 : Variant;JSONTextWriter@1000 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter");
+    BEGIN
+      JSONTextWriter.WritePropertyName(AttributeName);
+      JSONTextWriter.WriteValue(value);
+    END;
+
+    PROCEDURE CreateGood@100000000(ItemCode@100000034 : Code[20];Create@100000042 : Boolean;Type@100000041 : 'Item,G/L Account,Resource,Fixed Asset';BatchUpload@100000043 : Boolean) ReturnValue : Text;
+    VAR
+      CompanyInformation@100000033 : Record 79;
+      HttpWebRequestMgt@100000032 : Codeunit 1297;
+      TempBlob@100000031 : Record 99008535;
+      Instr@100000030 : InStream;
+      HttpStatusCode@100000029 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000028 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      itemCount@100000027 : Integer;
+      EFRISSetup@100000026 : Record 51402259;
+      EFRISCodeMapping@100000025 : Record 51402260;
+      StringWriter@100000024 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilder@100000023 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000022 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000021 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000020 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000019 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000018 : Text;
+      Contact@100000017 : Record 5050;
+      Customer@100000016 : Record 18;
+      SalesLine@100000015 : Record 37;
+      computedTax@100000014 : Decimal;
+      Resource@100000013 : Record 156;
+      totalGrossAmount@100000012 : Decimal;
+      totalNetAmount@100000011 : Decimal;
+      totalTaxAmount@100000010 : Decimal;
+      bytes@100000009 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000008 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000007 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000006 : Text;
+      TestFile@100000005 : File;
+      dataExchange@100000003 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000001 : Text;
+      WebException@100000000 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      Base64Convert@100000035 : Codeunit 51402208;
+      EncodedJson@100000036 : Text;
+      StringBuilderJSON@100000037 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JObject@100000038 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      JsonArray@100000039 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JArray";
+      Text000@100000040 : TextConst 'ENU=Good %1 has not been created, Error message %2';
+      Text001@100000004 : TextConst 'ENU=There is no corresponding Unit of Measure for Resource %1';
+      Item@100000044 : Record 27;
+      GLAccount@100000045 : Record 15;
+      Text003@100000046 : TextConst 'ENU=Goods creation failed because %1';
+      FixedAsset@100000047 : Record 5600;
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartArray;
+      JSONTextWriter.WriteStartObject;
+      ReturnValue := '';
+      CASE Type OF
+        Type::Resource:
+          BEGIN
+            Resource.RESET;
+            Resource.SETRANGE("No.", ItemCode);
+            IF Resource.FINDFIRST THEN BEGIN
+              createJSONAttribute('goodsName',Resource.Name,JSONTextWriter);
+              createJSONAttribute('goodsCode',Resource."No.",JSONTextWriter);
+              EFRISCodeMapping.RESET;
+              EFRISCodeMapping.SETRANGE("System Code",Resource."Base Unit of Measure");
+              IF EFRISCodeMapping.FINDFIRST THEN
+                createJSONAttribute('measureUnit',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+              ELSE
+                IF BatchUpload = FALSE THEN BEGIN
+                  ERROR(Text001, Resource."No.")
+                END ELSE BEGIN
+                  Resource."EFRIS Error" := STRSUBSTNO(Text001, Resource."No.");
+                  Resource.MODIFY;
+                END;
+              IF Create = TRUE THEN
+                createJSONAttribute('operationType','101',JSONTextWriter)
+              ELSE
+                createJSONAttribute('operationType','102',JSONTextWriter);
+              createJSONAttribute('unitPrice',FORMAT(Resource."Unit Price", 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+              createJSONAttribute('currency',EFRISSetup."Create Item Curr Code",JSONTextWriter);
+              createJSONAttribute('commodityCategoryId',Resource."Goods Category Id",JSONTextWriter);
+              createJSONAttribute('haveExciseTax','102',JSONTextWriter);
+              createJSONAttribute('description',Resource.Name,JSONTextWriter);
+              createJSONAttribute('stockPrewarning','1',JSONTextWriter);
+              createJSONAttribute('pieceMeasureUnit','',JSONTextWriter);
+              createJSONAttribute('havePieceUnit','102',JSONTextWriter);
+              createJSONAttribute('pieceUnitPrice','',JSONTextWriter);
+              createJSONAttribute('packageScaledValue','',JSONTextWriter);
+              createJSONAttribute('pieceScaledValue','',JSONTextWriter);
+              createJSONAttribute('exciseDutyCode','',JSONTextWriter);
+              createJSONAttribute('returnCode','',JSONTextWriter);
+              createJSONAttribute('returnMessage','',JSONTextWriter);
+            END;
+          END;
+        Type::Item:
+          BEGIN
+            Item.RESET;
+            Item.SETRANGE("No.", ItemCode);
+            IF Item.FINDFIRST THEN BEGIN
+              createJSONAttribute('goodsName',Item.Description,JSONTextWriter);
+              createJSONAttribute('goodsCode',Item."No.",JSONTextWriter);
+              EFRISCodeMapping.RESET;
+              EFRISCodeMapping.SETRANGE("System Code",Item."Base Unit of Measure");
+              IF EFRISCodeMapping.FINDFIRST THEN
+                createJSONAttribute('measureUnit',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+              ELSE
+                IF BatchUpload = FALSE THEN BEGIN
+                  ERROR(Text001, Item."No.");
+                END ELSE BEGIN
+                  Item."EFRIS Error" := STRSUBSTNO(Text001, Item."No.");
+                  Item.MODIFY;
+                END;
+              IF Create = TRUE THEN
+                createJSONAttribute('operationType','101',JSONTextWriter)
+              ELSE
+                createJSONAttribute('operationType','102',JSONTextWriter);
+              createJSONAttribute('unitPrice',FORMAT(Item."Unit Price", 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+              createJSONAttribute('currency',EFRISSetup."Create Item Curr Code",JSONTextWriter);
+              createJSONAttribute('commodityCategoryId',Item."Goods Category Id",JSONTextWriter);
+              createJSONAttribute('haveExciseTax','102',JSONTextWriter);
+              createJSONAttribute('description',Item.Description,JSONTextWriter);
+              createJSONAttribute('stockPrewarning',Item."Safety Stock Quantity",JSONTextWriter);
+              createJSONAttribute('pieceMeasureUnit','',JSONTextWriter);
+              createJSONAttribute('havePieceUnit','102',JSONTextWriter);
+              createJSONAttribute('pieceUnitPrice','',JSONTextWriter);
+              createJSONAttribute('packageScaledValue','',JSONTextWriter);
+              createJSONAttribute('pieceScaledValue','',JSONTextWriter);
+              createJSONAttribute('exciseDutyCode','',JSONTextWriter);
+              createJSONAttribute('returnCode','',JSONTextWriter);
+              createJSONAttribute('returnMessage','',JSONTextWriter);
+            END;
+          END;
+        Type::"G/L Account":
+          BEGIN
+            GLAccount.RESET;
+            GLAccount.SETRANGE("No.", ItemCode);
+            IF GLAccount.FINDFIRST THEN BEGIN
+              createJSONAttribute('goodsName',GLAccount.Name,JSONTextWriter);
+              createJSONAttribute('goodsCode',GLAccount."No.",JSONTextWriter);
+              EFRISCodeMapping.RESET;
+              EFRISCodeMapping.SETRANGE("System Code",GLAccount."Unit of Measure Code");
+              IF EFRISCodeMapping.FINDFIRST THEN
+                createJSONAttribute('measureUnit',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+              ELSE
+                IF BatchUpload = FALSE THEN BEGIN
+                  ERROR(Text001, GLAccount."No.");
+                END ELSE BEGIN
+                  GLAccount."EFRIS Error" := STRSUBSTNO(Text001, GLAccount."No.");
+                  GLAccount.MODIFY;
+                END;
+              IF Create = TRUE THEN
+                createJSONAttribute('operationType','101',JSONTextWriter)
+              ELSE
+                createJSONAttribute('operationType','102',JSONTextWriter);
+              createJSONAttribute('unitPrice',FORMAT(GLAccount."Unit Price", 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+              createJSONAttribute('currency',EFRISSetup."Create Item Curr Code",JSONTextWriter);
+              createJSONAttribute('commodityCategoryId',GLAccount."Goods Category Id",JSONTextWriter);
+              createJSONAttribute('haveExciseTax','102',JSONTextWriter);
+              createJSONAttribute('description',GLAccount.Name,JSONTextWriter);
+              createJSONAttribute('stockPrewarning','1',JSONTextWriter);
+              createJSONAttribute('pieceMeasureUnit','',JSONTextWriter);
+              createJSONAttribute('havePieceUnit','102',JSONTextWriter);
+              createJSONAttribute('pieceUnitPrice','',JSONTextWriter);
+              createJSONAttribute('packageScaledValue','',JSONTextWriter);
+              createJSONAttribute('pieceScaledValue','',JSONTextWriter);
+              createJSONAttribute('exciseDutyCode','',JSONTextWriter);
+              createJSONAttribute('returnCode','',JSONTextWriter);
+              createJSONAttribute('returnMessage','',JSONTextWriter);
+            END;
+          END;
+        Type::"Fixed Asset":
+          BEGIN
+            FixedAsset.RESET;
+            FixedAsset.SETRANGE("No.", ItemCode);
+            IF FixedAsset.FINDFIRST THEN BEGIN
+              createJSONAttribute('goodsName',FixedAsset.Description,JSONTextWriter);
+              createJSONAttribute('goodsCode',FixedAsset."No.",JSONTextWriter);
+              EFRISCodeMapping.RESET;
+              EFRISCodeMapping.SETRANGE("System Code",FixedAsset."Unit of Measure");
+              IF EFRISCodeMapping.FINDFIRST THEN
+                createJSONAttribute('measureUnit',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+              ELSE
+                IF BatchUpload = FALSE THEN BEGIN
+                  ERROR(Text001, FixedAsset."No.");
+                END ELSE BEGIN
+                  FixedAsset."EFRIS Error" := STRSUBSTNO(Text001, FixedAsset."No.");
+                  FixedAsset.MODIFY;
+                END;
+              IF Create = TRUE THEN
+                createJSONAttribute('operationType','101',JSONTextWriter)
+              ELSE
+                createJSONAttribute('operationType','102',JSONTextWriter);
+              createJSONAttribute('unitPrice',FORMAT(FixedAsset."Unit Price", 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+              createJSONAttribute('currency',EFRISSetup."Create Item Curr Code",JSONTextWriter);
+              createJSONAttribute('commodityCategoryId',FixedAsset."Goods Category Id",JSONTextWriter);
+              createJSONAttribute('haveExciseTax','102',JSONTextWriter);
+              createJSONAttribute('description',FixedAsset.Description,JSONTextWriter);
+              createJSONAttribute('stockPrewarning','1',JSONTextWriter);
+              createJSONAttribute('pieceMeasureUnit','',JSONTextWriter);
+              createJSONAttribute('havePieceUnit','102',JSONTextWriter);
+              createJSONAttribute('pieceUnitPrice','',JSONTextWriter);
+              createJSONAttribute('packageScaledValue','',JSONTextWriter);
+              createJSONAttribute('pieceScaledValue','',JSONTextWriter);
+              createJSONAttribute('exciseDutyCode','',JSONTextWriter);
+              createJSONAttribute('returnCode','',JSONTextWriter);
+              createJSONAttribute('returnMessage','',JSONTextWriter);
+            END;
+          END;
+      END;
+      //End Capture Details
+      JSONTextWriter.WriteEndObject;
+      JSONTextWriter.WriteEndArray;
+      JSON := StringBuilder.ToString;
+      EncodedJson := Base64Convert.TextToBase64String(StringBuilder.ToString);
+
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+        JSONTextWriter.WritePropertyName('data');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('content',EncodedJson,JSONTextWriter);
+          createJSONAttribute('signature','',JSONTextWriter);
+          JSONTextWriter.WritePropertyName('dataDescription');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('codeType','0',JSONTextWriter);
+            createJSONAttribute('encryptCode','0',JSONTextWriter);
+            createJSONAttribute('zipCode','0',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WritePropertyName('globalInfo');
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+          dataExchange := CREATEGUID;
+          dataExchange := DELCHR(dataExchange, '=', '{}-01');
+          dataExchange := COPYSTR(dataExchange, 1, 15);
+          createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+          createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('interfaceCode',EFRISSetup."Item Creation Interface Code",JSONTextWriter);
+          TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+          createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+          createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+          createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+          createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+          createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+          createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+          createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+          JSONTextWriter.WritePropertyName('extent');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+            createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WritePropertyName('returnStateInfo');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('returnCode','',JSONTextWriter);
+          createJSONAttribute('returnMessage','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+
+      JSONTextWriter.WriteEndObject;
+
+      HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+      HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+        CLEAR(JObject);
+        JObject:= JObject.Parse(ApiResult);
+        IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+          JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+          CLEAR(JObject);
+          JObject := JsonArray.Parse(JSON);
+          IF FORMAT(JObject.SelectToken('[0].returnCode')) = 'null' THEN BEGIN
+            GoodId(ItemCode,Type,BatchUpload);
+          END ELSE BEGIN
+            IF BatchUpload = FALSE THEN BEGIN
+              ERROR(Text003, FORMAT(JObject.SelectToken('[0].returnMessage')))
+            END ELSE BEGIN
+              CASE Type OF
+                Type::"G/L Account":
+                  BEGIN
+                    GLAccount.RESET;
+                    GLAccount.SETRANGE("No.",ItemCode);
+                    IF GLAccount.FINDFIRST THEN BEGIN
+                      GLAccount."EFRIS Error" := FORMAT(JObject.SelectToken('[0].returnMessage'));
+                      GLAccount.MODIFY;
+                    END;
+                  END;
+                Type::Item:
+                  BEGIN
+                    Item.RESET;
+                    Item.SETRANGE("No.", ItemCode);
+                    IF Item.FINDFIRST THEN BEGIN
+                      Item."EFRIS Error" := FORMAT(JObject.SelectToken('[0].returnMessage'));
+                      Item.MODIFY;
+                    END;
+                  END;
+                Type::Resource:
+                  BEGIN
+                    Resource.RESET;
+                    Resource.SETRANGE("No.", ItemCode);
+                    IF Resource.FINDFIRST THEN BEGIN
+                      Resource."EFRIS Error" := FORMAT(JObject.SelectToken('[0].returnMessage'));
+                      Resource.MODIFY;
+                    END;
+                  END;
+                Type::"Fixed Asset":
+                  BEGIN
+                    FixedAsset.RESET;
+                    FixedAsset.SETRANGE("No.", ItemCode);
+                    IF FixedAsset.FINDFIRST THEN BEGIN
+                      FixedAsset."EFRIS Error" := FORMAT(JObject.SelectToken('[0].returnMessage'));
+                      FixedAsset.MODIFY;
+                    END;
+                  END;
+              END;
+            END;
+          END;
+        END ELSE BEGIN
+          ERROR(Text000,ItemCode,FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    PROCEDURE SendCrToEFRIS@100000002(SalesHeader@100000000 : Record 36;VAR SalesCrMemoHeader@100000036 : Record 114);
+    VAR
+      CompanyInformation@100000001 : Record 79;
+      HttpWebRequestMgt@100000007 : Codeunit 1297;
+      TempBlob@100000006 : Record 99008535;
+      Instr@100000005 : InStream;
+      HttpStatusCode@100000004 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000003 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      itemCount@100000008 : Integer;
+      EFRISSetup@100000009 : Record 51402259;
+      EFRISCodeMapping@100000010 : Record 51402260;
+      StringWriter@100000012 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilder@100000011 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000013 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000016 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000015 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000014 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000017 : Text;
+      Contact@100000018 : Record 5050;
+      Customer@100000019 : Record 18;
+      SalesLine@100000020 : Record 37;
+      computedTax@100000021 : Decimal;
+      Resource@100000022 : Record 156;
+      totalGrossAmount@100000023 : Decimal;
+      totalNetAmount@100000024 : Decimal;
+      totalTaxAmount@100000025 : Decimal;
+      bytes@100000026 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000027 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000028 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000029 : Text;
+      TestFile@100000030 : File;
+      Base64Convert@100000031 : Codeunit 51402208;
+      dataExchange@100000032 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000033 : Text;
+      WebException@100000034 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      SalesInvoiceHeader@100000035 : Record 112;
+      PstdSalesCrMemoHdr@100000037 : Record 114;
+      JObject@100000038 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      Text001@100000039 : TextConst 'ENU=Invoice %1 Upload Failed because of %2';
+      StringBuilderResponse@100000040 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      unitTaxAmount@100000041 : Decimal;
+      unitGrossAmount@100000042 : Decimal;
+      Text002@100000043 : TextConst 'ENU=Sales Returns must have an External Document No. relating to posted sales invoice';
+      Text003@100000044 : TextConst 'ENU=There is no related Unit of Measure Code for Resource %1';
+      Text004@100000045 : TextConst 'ENU=Resource Description cannot be Empty';
+      EFRISCurrencyMapping@100000046 : Record 51402261;
+      ReturnReason@100000048 : Record 6635;
+      isDeemed@100000047 : Boolean;
+      orderNo@100000049 : Integer;
+      VATPostingSetup@100000050 : Record 325;
+      VatPercent@100000051 : Decimal;
+      Text006@100000054 : TextConst 'ENU=Tax Rate for %1 does not Exist';
+      Text005@100000053 : TextConst 'ENU=Failed to Decompress Response';
+      Text000@100000052 : TextConst 'ENU=%1 %2 does not exist on EFRIS';
+      GLAccount@100000055 : Record 15;
+      Item@100000056 : Record 27;
+      grossAmount@100000062 : Decimal;
+      netAmount@100000061 : Decimal;
+      unitPrice@100000060 : Decimal;
+      total@100000059 : Decimal;
+      discountAmount@100000058 : Decimal;
+      discountTax@100000057 : Decimal;
+      PstdSalesInvNo@100000063 : Code[50];
+      FixedAsset@100000064 : Record 5600;
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+
+      SalesInvoiceHeader.RESET;
+      SalesInvoiceHeader.SETRANGE("No.",SalesHeader."External Document No.");
+      IF SalesInvoiceHeader.FINDFIRST THEN BEGIN
+        SalesInvoiceHeader.TESTFIELD(SalesInvoiceHeader."URA Invoice No.");
+        SalesInvoiceHeader.TESTFIELD(SalesInvoiceHeader."URA Invoice Id");
+        createJSONAttribute('oriInvoiceNo',SalesInvoiceHeader."URA Invoice No.",JSONTextWriter);
+        createJSONAttribute('oriInvoiceId',SalesInvoiceHeader."URA Invoice Id",JSONTextWriter);
+        PstdSalesInvNo := SalesInvoiceHeader."No.";
+      END ELSE BEGIN
+        ERROR(Text002);
+      END;
+
+      createJSONAttribute('reason','Newspaper return',JSONTextWriter);
+      createJSONAttribute('reasonCode','105',JSONTextWriter);
+
+      EFRISCurrencyMapping.RESET;
+      EFRISCurrencyMapping.SETRANGE("System Code", SalesHeader."Currency Code");
+      IF EFRISCurrencyMapping.FINDFIRST THEN
+        createJSONAttribute('currency',EFRISCurrencyMapping."URA Code",JSONTextWriter)
+      ELSE
+        createJSONAttribute('currency',EFRISSetup."Upload Invoice Curr Code",JSONTextWriter);
+      createJSONAttribute('applicationTime',FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>'),JSONTextWriter);
+      createJSONAttribute('invoiceApplyCategoryCode','101',JSONTextWriter);
+      createJSONAttribute('referenceNo',SalesCrMemoHeader."No.",JSONTextWriter);
+      createJSONAttribute('source',EFRISSetup."Data Source",JSONTextWriter);
+
+      //Goods Details
+      SalesLine.RESET;
+      orderNo := 0;
+      IF SalesHeader."Archived Print Order No." <> '' THEN
+        SalesLine.SETCURRENTKEY("Outlet/SubAgent No.");
+      SalesLine.SETRANGE("Document No.",SalesHeader."No.");
+      SalesLine.SETFILTER("No.",'<>%1','');
+      SalesLine.SETFILTER(Quantity,'<>%1',0);
+      SalesLine.SETFILTER("Unit Price",'<>%1',0);
+      IF SalesLine.FINDSET THEN BEGIN
+        JSONTextWriter.WritePropertyName('goodsDetails');
+        JSONTextWriter.WriteStartArray;
+          itemCount := 0;
+          REPEAT
+            IF SalesLine."Line Discount %" <> 0 THEN BEGIN
+              JSONTextWriter.WriteStartObject;
+                createJSONAttribute('itemCode',SalesLine."No.",JSONTextWriter);
+                createJSONAttribute('qty',DELCHR(FORMAT(SalesLine.Quantity * -1),'=',','),JSONTextWriter);
+                VATPostingSetup.RESET;
+                VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+                VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+                IF VATPostingSetup.FINDFIRST THEN BEGIN
+                  createJSONAttribute('taxRate',FORMAT(VATPostingSetup."Tax Rate"),JSONTextWriter);
+                  VatPercent := VATPostingSetup."VAT %";
+                  isDeemed := VATPostingSetup.Deemed;
+                END ELSE BEGIN
+                  ERROR(Text006, SalesLine."VAT Prod. Posting Group");
+                END;
+                CASE SalesLine.Type OF
+                  SalesLine.Type::"G/L Account":
+                    BEGIN
+                    GLAccount.RESET;
+                    GLAccount.SETRANGE("No.",SalesLine."No.");
+                    IF GLAccount.FINDFIRST THEN
+                      IF isDeemed = TRUE THEN
+                        createJSONAttribute('item',GLAccount.Name+' (Deemed)',JSONTextWriter)
+                      ELSE
+                        createJSONAttribute('item',GLAccount.Name,JSONTextWriter);
+                    END;
+                  SalesLine.Type::Item:
+                    BEGIN
+                      Item.RESET;
+                      Item.SETRANGE("No.",SalesLine."No.");
+                      IF Item.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',Item.Description+' (Deemed)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',Item.Description,JSONTextWriter);
+                    END;
+                  SalesLine.Type::Resource:
+                    BEGIN
+                      Resource.RESET;
+                      Resource.SETRANGE("No.",SalesLine."No.");
+                      IF Resource.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',Resource.Name+' (Deemed)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',Resource.Name,JSONTextWriter);
+                    END;
+                  SalesLine.Type::"Fixed Asset":
+                    BEGIN
+                      FixedAsset.RESET;
+                      FixedAsset.SETRANGE("No.",SalesLine."No.");
+                      IF FixedAsset.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',FixedAsset.Description+'  (Deemed)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',FixedAsset.Description,JSONTextWriter);
+                    END;
+                END;
+                unitPrice := 0;
+                unitPrice := ROUND(SalesLine."Unit Price", 0.01,'=');
+                total := 0;
+                total := ROUND((unitPrice * SalesLine.Quantity), 0.01, '=');
+                discountAmount := 0;
+                discountAmount := ROUND(((SalesLine."Line Discount %"/100) * total), 0.01, '=');
+                unitPrice := ROUND(((total - discountAmount) / SalesLine.Quantity), 0.01, '=');
+                total := ROUND((unitPrice * SalesLine.Quantity), 0.01, '=');
+
+                computedTax := 0;
+                computedTax := (unitPrice * SalesLine.Quantity) / ( 1 + (SalesLine."VAT %"/100));
+                computedTax := (unitPrice * SalesLine.Quantity) - ROUND(computedTax, 0.01, '=');
+                discountTax := 0;
+                //discountTax := discountAmount / (1 + (SalesLine."VAT %"/100));
+                //discountTax := discountAmount - ROUND(discountTax, 0.01, '=');
+
+                IF VatPercent = 0 THEN BEGIN
+                  computedTax := 0;
+                  discountTax := 0;
+                END;
+                createJSONAttribute('tax',FORMAT((computedTax - discountTax) * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('orderNumber',FORMAT(MarkOrderLines(PstdSalesInvNo, SalesLine)),JSONTextWriter);
+                //DMZ Check Unit of Measure
+                EFRISCodeMapping.RESET;
+                EFRISCodeMapping.SETRANGE("System Code", SalesLine."Unit of Measure Code");
+                IF EFRISCodeMapping.FINDFIRST THEN
+                  createJSONAttribute('unitOfMeasure',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+                ELSE
+                  ERROR(Text002,SalesLine."No.");
+                //createJSONAttribute('discountFlag',FORMAT(1),JSONTextWriter);
+                createJSONAttribute('discountFlag',FORMAT(2),JSONTextWriter);
+                createJSONAttribute('unitPrice',FORMAT(unitPrice, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+
+                createJSONAttribute('total',FORMAT(total * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                discountAmount := 0;
+                discountAmount := ROUND(((SalesLine."Line Discount %"/100) * total), 0.01, '=');
+                createJSONAttribute('discountTotal','',JSONTextWriter);
+                //createJSONAttribute('discountTotal',FORMAT(discountAmount * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('discountTaxRate','',JSONTextWriter);
+                createJSONAttribute('exciseRate','',JSONTextWriter);
+                createJSONAttribute('exciseTax','',JSONTextWriter);
+                createJSONAttribute('exciseUnit','',JSONTextWriter);
+                createJSONAttribute('exciseCurrency','',JSONTextWriter);
+                createJSONAttribute('exciseRateName','',JSONTextWriter);
+                IF isDeemed = TRUE THEN
+                  createJSONAttribute('deemedFlag',FORMAT(1),JSONTextWriter)
+                ELSE
+                  createJSONAttribute('deemedFlag',FORMAT(2),JSONTextWriter);
+                CASE SalesLine.Type OF
+                  SalesLine.Type::Resource:
+                    BEGIN
+                      Resource.RESET;
+                      Resource.SETRANGE("No.",SalesLine."No.");
+                      IF Resource.FINDFIRST THEN BEGIN
+                        IF Resource."Commodity Category Id" = '' THEN BEGIN
+                          ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                        END ELSE BEGIN
+                          createJSONAttribute('goodsCategoryId',Resource."Goods Category Id",JSONTextWriter);
+                          createJSONAttribute('goodsCategoryName',Resource."Goods Category Name",JSONTextWriter);
+                        END;
+                      END;
+                    END;
+                  SalesLine.Type::Item:
+                    BEGIN
+                      Item.RESET;
+                      Item.SETRANGE("No.",SalesLine."No.");
+                      IF Item.FINDFIRST THEN BEGIN
+                        IF Item."Commodity Category Id" = '' THEN BEGIN
+                          ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                        END ELSE BEGIN
+                          createJSONAttribute('goodsCategoryId',Item."Goods Category Id",JSONTextWriter);
+                          createJSONAttribute('goodsCategoryName',Item."Goods Category Name",JSONTextWriter);
+                        END;
+                      END;
+                    END;
+                  SalesLine.Type::"G/L Account":
+                    BEGIN
+                      GLAccount.RESET;
+                      GLAccount.SETRANGE("No.",SalesLine."No.");
+                      IF GLAccount.FINDFIRST THEN BEGIN
+                        IF GLAccount."Commodity Category Id" = '' THEN BEGIN
+                          ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                        END ELSE BEGIN
+                          createJSONAttribute('goodsCategoryId',GLAccount."Goods Category Id",JSONTextWriter);
+                          createJSONAttribute('goodsCategoryName',GLAccount."Goods Category Name",JSONTextWriter);
+                        END;
+                      END;
+                    END;
+                 SalesLine.Type::"Fixed Asset":
+                   BEGIN
+                     FixedAsset.RESET;
+                     FixedAsset.SETRANGE("No.",SalesLine."No.");
+                     IF FixedAsset.FINDFIRST THEN
+                       IF FixedAsset."Commodity Category Id" = '' THEN BEGIN
+                         ERROR(Text000, SalesLine.Type, SalesLine."No.")
+                       END ELSE BEGIN
+                         createJSONAttribute('goodsCategoryId',FixedAsset."Goods Category Id",JSONTextWriter);
+                         createJSONAttribute('goodsCategoryName',FixedAsset."Goods Category Name",JSONTextWriter);
+                       END;
+                   END;
+                END;
+                createJSONAttribute('exciseFlag',FORMAT(2),JSONTextWriter);
+                createJSONAttribute('pack','',JSONTextWriter);
+                createJSONAttribute('stick','',JSONTextWriter);
+                orderNo := orderNo + 1;
+              JSONTextWriter.WriteEndObject;
+              itemCount := itemCount + 1;
+
+            END ELSE BEGIN
+
+              JSONTextWriter.WriteStartObject;
+                createJSONAttribute('itemCode',SalesLine."No.",JSONTextWriter);
+                createJSONAttribute('qty',DELCHR(FORMAT(SalesLine.Quantity * -1),'=',','),JSONTextWriter);
+                VATPostingSetup.RESET;
+                VATPostingSetup.RESET;
+                VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+                VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+                IF VATPostingSetup.FINDFIRST THEN BEGIN
+                  createJSONAttribute('taxRate',FORMAT(VATPostingSetup."Tax Rate"),JSONTextWriter);
+                  VatPercent := VATPostingSetup."VAT %";
+                  isDeemed := VATPostingSetup.Deemed;
+                END ELSE BEGIN
+                  ERROR(Text006, SalesLine."VAT Prod. Posting Group");
+                END;
+                CASE SalesLine.Type OF
+                  SalesLine.Type::"G/L Account":
+                    BEGIN
+                    GLAccount.RESET;
+                    GLAccount.SETRANGE("No.",SalesLine."No.");
+                    IF GLAccount.FINDFIRST THEN
+                      IF isDeemed = TRUE THEN
+                        createJSONAttribute('item',GLAccount.Name+' (Deemed)',JSONTextWriter)
+                      ELSE
+                        createJSONAttribute('item',GLAccount.Name,JSONTextWriter);
+                    END;
+                  SalesLine.Type::Item:
+                    BEGIN
+                      Item.RESET;
+                      Item.SETRANGE("No.",SalesLine."No.");
+                      IF Item.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',Item.Description+' (Deemed)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',Item.Description,JSONTextWriter);
+                    END;
+                  SalesLine.Type::Resource:
+                    BEGIN
+                      Resource.RESET;
+                      Resource.SETRANGE("No.",SalesLine."No.");
+                      IF Resource.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',Resource.Name+' (Deemed)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',Resource.Name,JSONTextWriter);
+                    END;
+                  SalesLine.Type::"Fixed Asset":
+                    BEGIN
+                      FixedAsset.RESET;
+                      FixedAsset.SETRANGE("No.",SalesLine."No.");
+                      IF FixedAsset.FINDFIRST THEN
+                        IF isDeemed = TRUE THEN
+                          createJSONAttribute('item',FixedAsset.Description+'  (Deemed)',JSONTextWriter)
+                        ELSE
+                          createJSONAttribute('item',FixedAsset.Description,JSONTextWriter);
+                    END;
+                END;
+                computedTax := 0;
+                unitPrice := 0;
+                unitPrice := ROUND(SalesLine."Unit Price",0.01, '=');
+                computedTax := (unitPrice * SalesLine.Quantity) / ( 1 + (SalesLine."VAT %"/100));
+                computedTax := (unitPrice * SalesLine.Quantity) - computedTax;
+                IF VatPercent = 0 THEN
+                  computedTax := 0;
+                createJSONAttribute('tax',FORMAT(computedTax * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('orderNumber',FORMAT(MarkOrderLines(PstdSalesInvNo, SalesLine)),JSONTextWriter);
+                //DMZ Check Unit of Measure
+                EFRISCodeMapping.RESET;
+                EFRISCodeMapping.SETRANGE("System Code", SalesLine."Unit of Measure Code");
+                IF EFRISCodeMapping.FINDFIRST THEN
+                  createJSONAttribute('unitOfMeasure',EFRISCodeMapping."EFRIS Code",JSONTextWriter)
+                ELSE
+                  ERROR(Text002,SalesLine."No.");
+                createJSONAttribute('discountFlag',FORMAT(2),JSONTextWriter);
+                createJSONAttribute('unitPrice',FORMAT(unitPrice, 0, '<Precision,2><Integer><Decimals>'),JSONTextWriter);
+                total := (unitPrice * SalesLine."Qty. to Invoice");
+                createJSONAttribute('total',FORMAT(total * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('discountTotal','',JSONTextWriter);
+                createJSONAttribute('discountTaxRate','',JSONTextWriter);
+                createJSONAttribute('exciseRate','',JSONTextWriter);
+                createJSONAttribute('exciseTax','',JSONTextWriter);
+                createJSONAttribute('exciseUnit','',JSONTextWriter);
+                createJSONAttribute('exciseCurrency','',JSONTextWriter);
+                createJSONAttribute('exciseRateName','',JSONTextWriter);
+                IF isDeemed = TRUE THEN
+                  createJSONAttribute('deemedFlag',FORMAT(1),JSONTextWriter)
+                ELSE
+                  createJSONAttribute('deemedFlag',FORMAT(2),JSONTextWriter);
+                CASE SalesLine.Type OF
+                  SalesLine.Type::Resource:
+                    BEGIN
+                      Resource.RESET;
+                      Resource.SETRANGE("No.",SalesLine."No.");
+                      IF Resource.FINDFIRST THEN BEGIN
+                        IF Resource."Commodity Category Id" = '' THEN BEGIN
+                          ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                        END ELSE BEGIN
+                          createJSONAttribute('goodsCategoryId',Resource."Goods Category Id",JSONTextWriter);
+                          createJSONAttribute('goodsCategoryName',Resource."Goods Category Name",JSONTextWriter);
+                        END;
+                      END;
+                    END;
+                  SalesLine.Type::Item:
+                    BEGIN
+                      Item.RESET;
+                      Item.SETRANGE("No.",SalesLine."No.");
+                      IF Item.FINDFIRST THEN BEGIN
+                        IF Item."Commodity Category Id" = '' THEN BEGIN
+                          ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                        END ELSE BEGIN
+                          createJSONAttribute('goodsCategoryId',Item."Goods Category Id",JSONTextWriter);
+                          createJSONAttribute('goodsCategoryName',Item."Goods Category Name",JSONTextWriter);
+                        END;
+                      END;
+                    END;
+                  SalesLine.Type::"G/L Account":
+                    BEGIN
+                      GLAccount.RESET;
+                      GLAccount.SETRANGE("No.",SalesLine."No.");
+                      IF GLAccount.FINDFIRST THEN BEGIN
+                        IF GLAccount."Commodity Category Id" = '' THEN BEGIN
+                          ERROR(Text000, SalesLine.Type, SalesLine."No.");
+                        END ELSE BEGIN
+                          createJSONAttribute('goodsCategoryId',GLAccount."Goods Category Id",JSONTextWriter);
+                          createJSONAttribute('goodsCategoryName',GLAccount."Goods Category Name",JSONTextWriter);
+                        END;
+                      END;
+                    END;
+                 SalesLine.Type::"Fixed Asset":
+                   BEGIN
+                     FixedAsset.RESET;
+                     FixedAsset.SETRANGE("No.",SalesLine."No.");
+                     IF FixedAsset.FINDFIRST THEN
+                       IF FixedAsset."Commodity Category Id" = '' THEN BEGIN
+                         ERROR(Text000, SalesLine.Type, SalesLine."No.")
+                       END ELSE BEGIN
+                         createJSONAttribute('goodsCategoryId',FixedAsset."Goods Category Id",JSONTextWriter);
+                         createJSONAttribute('goodsCategoryName',FixedAsset."Goods Category Name",JSONTextWriter);
+                       END;
+                   END;
+                END;
+                createJSONAttribute('exciseFlag',FORMAT(2),JSONTextWriter);
+                createJSONAttribute('pack','',JSONTextWriter);
+                createJSONAttribute('stick','',JSONTextWriter);
+                orderNo := orderNo + 1;
+              JSONTextWriter.WriteEndObject;
+              itemCount := itemCount + 1;
+            END;
+          UNTIL SalesLine.NEXT = 0;
+        JSONTextWriter.WriteEndArray;
+      END;
+      //End Goods Details
+
+
+        //Tax Details
+        computedTax := 0;
+        SalesLine.RESET;
+        grossAmount := 0;
+        netAmount := 0;
+        totalGrossAmount := 0;
+        totalNetAmount := 0;
+        totalTaxAmount := 0;
+        SalesLine.RESET;
+        IF SalesHeader."Archived Print Order No." <> '' THEN
+          SalesLine.SETCURRENTKEY("Outlet/SubAgent No.");
+        SalesLine.SETRANGE("Document No.",SalesHeader."No.");
+        SalesLine.SETFILTER("No.",'<>%1','');
+        SalesLine.SETFILTER(Quantity,'<>%1',0);
+        SalesLine.SETFILTER("Unit Price",'<>%1',0);
+        IF SalesLine.FINDSET THEN BEGIN
+          JSONTextWriter.WritePropertyName('taxDetails');
+          JSONTextWriter.WriteStartArray;
+            REPEAT
+              JSONTextWriter.WriteStartObject;
+                VATPostingSetup.RESET;
+                VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+                VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+                IF VATPostingSetup.FINDFIRST THEN BEGIN
+                  VATPostingSetup.TESTFIELD(VATPostingSetup."Tax Rate");
+                  VATPostingSetup.TESTFIELD(VATPostingSetup."Tax Rate Name");
+                  VatPercent := VATPostingSetup."VAT %";
+                  VATPostingSetup.TESTFIELD(VATPostingSetup."Tax Category Name");
+                  createJSONAttribute('taxRate',FORMAT(VATPostingSetup."Tax Rate"),JSONTextWriter);
+                  createJSONAttribute('taxCategory',FORMAT(VATPostingSetup."Tax Category Name"),JSONTextWriter);
+                  createJSONAttribute('taxRateName',FORMAT(VATPostingSetup."Tax Rate Name"),JSONTextWriter);
+                END;
+                unitPrice:= 0;
+                unitPrice := ROUND(SalesLine."Unit Price", 0.01,'=');
+                total := 0;
+                total := ROUND((unitPrice * SalesLine.Quantity), 0.01, '=');
+                discountAmount := 0;
+                discountAmount := ROUND(((SalesLine."Line Discount %"/100) * total), 0.01, '=');
+                unitPrice := ROUND(((total - discountAmount) / SalesLine.Quantity), 0.01, '=');
+                total := ROUND((unitPrice * SalesLine.Quantity), 0.01, '=');
+                computedTax := (unitPrice * SalesLine.Quantity) / (1 + (SalesLine."VAT %"/100));
+                computedTax := (unitPrice * SalesLine.Quantity) - ROUND(computedTax,0.01,'=');
+                discountTax := 0;
+                //discountTax := discountAmount / (1 + (SalesLine."VAT %"/100));
+                //discountTax := discountAmount - ROUND(discountTax, 0.01, '=');
+                IF VatPercent = 0 THEN BEGIN
+                  computedTax := 0;
+                  discountTax := 0;
+                END;
+                createJSONAttribute('exciseUnit','',JSONTextWriter);
+                grossAmount := (unitPrice * SalesLine.Quantity);
+                createJSONAttribute('grossAmount',FORMAT(grossAmount * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('taxAmount',FORMAT((computedTax - discountTax) * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('netAmount',FORMAT((grossAmount - (computedTax - discountTax)) * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+                createJSONAttribute('exciseCurrency','',JSONTextWriter);
+              JSONTextWriter.WriteEndObject;
+            UNTIL SalesLine.NEXT = 0;
+          JSONTextWriter.WriteEndArray;
+        END;
+        //End Tax Details
+
+        //Summary
+        SalesHeader.CALCFIELDS(Amount);
+        SalesHeader.CALCFIELDS("Amount Including VAT");
+        totalGrossAmount := 0;
+        totalNetAmount := 0;
+        totalTaxAmount := 0;
+        computedTax := 0;
+        grossAmount := 0;
+        SalesLine.RESET;
+        IF SalesHeader."Archived Print Order No." <> '' THEN
+          SalesLine.SETCURRENTKEY("Outlet/SubAgent No.");
+        SalesLine.SETRANGE("Document No.",SalesHeader."No.");
+        SalesLine.SETFILTER("No.",'<>%1','');
+        SalesLine.SETFILTER(Quantity,'<>%1',0);
+        SalesLine.SETFILTER("Unit Price",'<>%1',0);
+        IF SalesLine.FINDSET THEN BEGIN
+          REPEAT
+            unitPrice:= 0;
+            unitPrice := ROUND(SalesLine."Unit Price", 0.01,'=');
+            total := 0;
+            total := ROUND((unitPrice * SalesLine.Quantity), 0.01, '=');
+            discountAmount := 0;
+            discountAmount := ROUND(((SalesLine."Line Discount %"/100) * total), 0.01, '=');
+            unitPrice := ROUND(((total - discountAmount) / SalesLine.Quantity), 0.01, '=');
+            total := ROUND((unitPrice * SalesLine.Quantity), 0.01, '=');
+            computedTax := (unitPrice * SalesLine.Quantity) / (1 + (SalesLine."VAT %"/100));
+            computedTax := (unitPrice * SalesLine.Quantity) - ROUND(computedTax,0.01,'=');
+            discountTax := 0;
+            //discountTax := discountAmount / (1 + (SalesLine."VAT %"/100));
+            //discountTax := discountAmount - ROUND(discountTax, 0.01, '=');
+            grossAmount := (unitPrice * SalesLine.Quantity);
+            VATPostingSetup.RESET;
+            VATPostingSetup.SETRANGE("VAT Prod. Posting Group", SalesLine."VAT Prod. Posting Group");
+            VATPostingSetup.SETRANGE("VAT Bus. Posting Group", SalesHeader."VAT Bus. Posting Group");
+            IF VATPostingSetup.FINDFIRST THEN BEGIN
+              VatPercent := VATPostingSetup."VAT %";
+              isDeemed := VATPostingSetup.Deemed;
+            END;
+            IF VatPercent = 0 THEN BEGIN
+              computedTax := 0;
+              discountTax := 0;
+            END;
+            totalGrossAmount := totalGrossAmount + ROUND(grossAmount, 0.01, '=');
+            computedTax := (unitPrice * SalesLine.Quantity) / (1 + (SalesLine."VAT %" / 100));
+            computedTax := (unitPrice * SalesLine.Quantity) -  ROUND(computedTax, 0.01,'=');
+            totalTaxAmount := totalTaxAmount + ROUND((computedTax - discountTax), 0.01,'=');
+            totalNetAmount := totalNetAmount + (ROUND(grossAmount, 0.01, '=') - ROUND((computedTax - discountTax), 0.01,'='));
+          UNTIL SalesLine.NEXT = 0;
+          JSONTextWriter.WritePropertyName('summary');
+          JSONTextWriter.WriteStartObject;
+          IF isDeemed = TRUE THEN BEGIN
+            totalTaxAmount := 0;
+            totalGrossAmount := totalNetAmount;
+          END;
+          createJSONAttribute('netAmount',FORMAT(totalNetAmount * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+          createJSONAttribute('taxAmount',FORMAT(totalTaxAmount * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+          createJSONAttribute('grossAmount',FORMAT(totalGrossAmount * -1, 0, '<Precision,2><Sign><Integer><Decimals>'),JSONTextWriter);
+          createJSONAttribute('itemCount',FORMAT(itemCount),JSONTextWriter);
+          createJSONAttribute('modeCode',FORMAT(EFRISSetup."Mode Code"),JSONTextWriter);
+          createJSONAttribute('remarks',SalesHeader."Posting Description",JSONTextWriter);
+          createJSONAttribute('qrCode','',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        END;
+        //End Summary
+
+        SalesHeader.CALCFIELDS("Amount Including VAT");
+        //Payway
+        SalesLine.RESET;
+        IF SalesHeader."Archived Print Order No." <> '' THEN
+          SalesLine.SETCURRENTKEY("Outlet/SubAgent No.");
+        SalesLine.SETRANGE("Document No.",SalesHeader."No.");
+        SalesLine.SETFILTER("No.",'<>%1','');
+        SalesLine.SETFILTER(Quantity,'<>%1',0);
+        SalesLine.SETFILTER("Unit Price",'<>%1',0);
+        IF SalesLine.FINDSET THEN BEGIN
+          JSONTextWriter.WritePropertyName('payWay');
+          JSONTextWriter.WriteStartArray;
+          //REPEAT
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('paymentMode',FORMAT(101),JSONTextWriter);
+          createJSONAttribute('paymentAmount',DELCHR(FORMAT(totalGrossAmount), '=',','),JSONTextWriter);
+          createJSONAttribute('orderNumber',FORMAT(0),JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+          //UNTIL SalesLine.NEXT = 0;
+          JSONTextWriter.WriteEndArray;
+
+        END;
+        //End Payway
+
+
+
+      //Extend
+      JSONTextWriter.WritePropertyName('extend');
+      JSONTextWriter.WriteStartObject;
+      createJSONAttribute('reason','',JSONTextWriter);
+      createJSONAttribute('reasonCode','',JSONTextWriter);
+      JSONTextWriter.WriteEndObject;
+      //End Extend
+
+      JSONTextWriter.WriteEndObject;
+
+      JSON := StringBuilder.ToString;
+
+      FileName := TEMPORARYPATH +'InvoiceRequest.txt';
+      //MESSAGE(FileName);
+      IF EXISTS(FileName) THEN BEGIN
+        TestFile.WRITEMODE(TRUE);
+        TestFile.OPEN(FileName);
+        TestFile.WRITE(StringBuilder.ToString);
+        TestFile.CLOSE;
+      END ELSE BEGIN
+        MESSAGE('%1 does not exist.', FileName);
+        TestFile.CREATE(FileName);
+      END;
+
+
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+        JSONTextWriter.WritePropertyName('data');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('content',Base64Convert.TextToBase64String(JSON),JSONTextWriter);
+          createJSONAttribute('signature','',JSONTextWriter);
+          JSONTextWriter.WritePropertyName('dataDescription');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('codeType','0',JSONTextWriter);
+            createJSONAttribute('encryptCode','0',JSONTextWriter);
+            createJSONAttribute('zipCode','0',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WritePropertyName('globalInfo');
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+          dataExchange := CREATEGUID;
+          dataExchange := DELCHR(dataExchange, '=', '{}-01');
+          dataExchange := COPYSTR(dataExchange, 1, 15);
+          createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+          createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('interfaceCode',EFRISSetup."Credit Note Interface Code",JSONTextWriter);
+          TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+          createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+          createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+          createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+          createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+          createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+          createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+          createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+          JSONTextWriter.WritePropertyName('extent');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+            createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WritePropertyName('returnStateInfo');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('returnCode','',JSONTextWriter);
+          createJSONAttribute('returnMessage','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+
+      JSONTextWriter.WriteEndObject;
+      HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+
+      HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+
+        StringBuilderResponse := StringBuilderResponse.StringBuilder;
+        StringBuilderResponse.Append(ApiResult);
+
+        JObject:= JObject.Parse(ApiResult);
+        IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+          JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+          CLEAR(JObject);
+          JObject:= JObject.Parse(JSON);
+          IF FORMAT(JObject.SelectToken('referenceNo')) = 'null' THEN BEGIN
+            ERROR(Text001, SalesCrMemoHeader."No.", FORMAT(JObject.SelectToken('returnMessage')));
+          END ELSE BEGIN
+            SalesCrMemoHeader."Reference No." := FORMAT(JObject.SelectToken('referenceNo'));
+            SalesCrMemoHeader.MODIFY;
+          END;
+        END ELSE BEGIN
+          ERROR(Text001,SalesHeader."No.",FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    PROCEDURE QueryTin@100000006(Tin@100000041 : Text[250];varCustomer@100000034 : Record 18;BulkValidation@100000042 : Boolean;CustName@100000043 : Text[250]);
+    VAR
+      CompanyInformation@100000033 : Record 79;
+      HttpWebRequestMgt@100000032 : Codeunit 1297;
+      TempBlob@100000031 : Record 99008535;
+      Instr@100000030 : InStream;
+      HttpStatusCode@100000029 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000028 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      itemCount@100000027 : Integer;
+      EFRISSetup@100000026 : Record 51402259;
+      EFRISCodeMapping@100000025 : Record 51402260;
+      StringWriter@100000024 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilder@100000023 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000022 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000021 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000020 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000019 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000018 : Text;
+      Contact@100000017 : Record 5050;
+      Customer@100000016 : Record 18;
+      SalesLine@100000015 : Record 37;
+      computedTax@100000014 : Decimal;
+      Resource@100000013 : Record 156;
+      totalGrossAmount@100000012 : Decimal;
+      totalNetAmount@100000011 : Decimal;
+      totalTaxAmount@100000010 : Decimal;
+      bytes@100000009 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000008 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000007 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000006 : Text;
+      TestFile@100000005 : File;
+      dataExchange@100000003 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000001 : Text;
+      WebException@100000000 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      Base64Convert@100000035 : Codeunit 51402208;
+      EncodedJson@100000036 : Text;
+      StringBuilderJSON@100000037 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JObject@100000038 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      JsonArray@100000039 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JArray";
+      Text000@100000040 : TextConst 'ENU=Tin Validation %1 has failed, Error message %2';
+      Text001@100000004 : TextConst 'ENU=Tax payer business name %1 is not same as customer name %2 for Tin %3';
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+      //Capture Resource Details
+      createJSONAttribute('tin',Tin,JSONTextWriter);
+      //End Capture Details
+      JSONTextWriter.WriteEndObject;
+      JSON := StringBuilder.ToString;
+      EncodedJson := Base64Convert.TextToBase64String(StringBuilder.ToString);
+
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+        JSONTextWriter.WritePropertyName('data');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('content',EncodedJson,JSONTextWriter);
+          createJSONAttribute('signature','',JSONTextWriter);
+          JSONTextWriter.WritePropertyName('dataDescription');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('codeType','0',JSONTextWriter);
+            createJSONAttribute('encryptCode','0',JSONTextWriter);
+            createJSONAttribute('zipCode','0',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WritePropertyName('globalInfo');
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+          dataExchange := CREATEGUID;
+          dataExchange := DELCHR(dataExchange, '=', '{}-01');
+          dataExchange := COPYSTR(dataExchange, 1, 15);
+          createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+          createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('interfaceCode',EFRISSetup."Query Tin Interface Code",JSONTextWriter);
+          TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+          createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+          createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+          createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+          createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+          createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+          createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+          createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+          JSONTextWriter.WritePropertyName('extent');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+            createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WritePropertyName('returnStateInfo');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('returnCode','',JSONTextWriter);
+          createJSONAttribute('returnMessage','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+
+      JSONTextWriter.WriteEndObject;
+
+      HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+      HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+        CLEAR(JObject);
+        JObject:= JObject.Parse(ApiResult);
+        IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+          JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+          CLEAR(JsonArray);
+          JObject:= JObject.Parse(Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content'))));
+          Customer.RESET;
+          Customer.SETRANGE("No.",varCustomer."No.");
+          IF Customer.FINDFIRST THEN BEGIN
+            IF FORMAT(JObject.SelectToken('taxpayer.legalName')) <> CustName THEN BEGIN
+              IF BulkValidation = FALSE THEN BEGIN
+                ERROR(Text001,JObject.SelectToken('taxpayer.legalName'),CustName, Tin);
+              END ELSE BEGIN
+                Customer.Name := FORMAT(JObject.SelectToken('taxpayer.legalName'));
+                Customer.Validated := TRUE;
+                Customer."URA Business Name" := FORMAT(JObject.SelectToken('taxpayer.legalName'));
+                Customer.MODIFY
+              END;
+            END ELSE BEGIN
+              Customer.Validated := TRUE;
+              Customer."URA Business Name" := FORMAT(JObject.SelectToken('taxpayer.legalName'));
+              Customer.MODIFY
+            END;
+          END;
+        END ELSE BEGIN
+          IF BulkValidation = FALSE THEN BEGIN
+            ERROR(Text000,Tin,FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+           END ELSE BEGIN
+            Customer."URA Business Name" := FORMAT(JObject.SelectToken('returnStateInfo.returnMessage'));
+            Customer.MODIFY
+           END;
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    PROCEDURE QueryCr@100000003(SalesCrMemoHeader@100000034 : Record 114);
+    VAR
+      CompanyInformation@100000033 : Record 79;
+      HttpWebRequestMgt@100000032 : Codeunit 1297;
+      TempBlob@100000031 : Record 99008535;
+      Instr@100000030 : InStream;
+      HttpStatusCode@100000029 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000028 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      itemCount@100000027 : Integer;
+      EFRISSetup@100000026 : Record 51402259;
+      EFRISCodeMapping@100000025 : Record 51402260;
+      StringWriter@100000024 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilder@100000023 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000022 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000021 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000020 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000019 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000018 : Text;
+      Contact@100000017 : Record 5050;
+      Customer@100000016 : Record 18;
+      SalesLine@100000015 : Record 37;
+      computedTax@100000014 : Decimal;
+      Resource@100000013 : Record 156;
+      totalGrossAmount@100000012 : Decimal;
+      totalNetAmount@100000011 : Decimal;
+      totalTaxAmount@100000010 : Decimal;
+      bytes@100000009 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000008 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000007 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000006 : Text;
+      TestFile@100000005 : File;
+      dataExchange@100000003 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000001 : Text;
+      WebException@100000000 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      Base64Convert@100000035 : Codeunit 51402208;
+      EncodedJson@100000036 : Text;
+      StringBuilderJSON@100000037 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JObject@100000038 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      JsonArray@100000039 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JArray";
+      Text000@100000040 : TextConst 'ENU=Tin Validation %1 has failed, Error message %2';
+      Text001@100000004 : TextConst 'ENU=Tax payer business name %1 is not same as customer name %2 for Tin %3';
+      PstdSalesCrMemoHdr@100000041 : Record 114;
+      Text004@100000042 : TextConst 'ENU=Credit note with reference %1 was %2.';
+      approveStatus@100000043 : Code[50];
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+      //Capture Resource Details
+      createJSONAttribute('referenceNo',SalesCrMemoHeader."Reference No.",JSONTextWriter);
+      createJSONAttribute('pageNo','1',JSONTextWriter);
+      createJSONAttribute('pageSize','10',JSONTextWriter);
+      createJSONAttribute('queryType','1',JSONTextWriter);
+      //createJSONAttribute('approveStatus','101',JSONTextWriter);
+      createJSONAttribute('invoiceApplyCategoryCode','101',JSONTextWriter);
+
+      //End Capture Details
+      JSONTextWriter.WriteEndObject;
+      JSON := StringBuilder.ToString;
+      EncodedJson := Base64Convert.TextToBase64String(StringBuilder.ToString);
+
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+        JSONTextWriter.WritePropertyName('data');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('content',EncodedJson,JSONTextWriter);
+          createJSONAttribute('signature','',JSONTextWriter);
+          JSONTextWriter.WritePropertyName('dataDescription');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('codeType','0',JSONTextWriter);
+            createJSONAttribute('encryptCode','0',JSONTextWriter);
+            createJSONAttribute('zipCode','0',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WritePropertyName('globalInfo');
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+          dataExchange := CREATEGUID;
+          dataExchange := DELCHR(dataExchange, '=', '{}-01');
+          dataExchange := COPYSTR(dataExchange, 1, 15);
+          createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+          createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('interfaceCode',EFRISSetup."Query Cr Interface Code",JSONTextWriter);
+          TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+          createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+          createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+          createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+          createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+          createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+          createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+          createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+          JSONTextWriter.WritePropertyName('extent');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+            createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WritePropertyName('returnStateInfo');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('returnCode','',JSONTextWriter);
+          createJSONAttribute('returnMessage','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+
+      JSONTextWriter.WriteEndObject;
+
+      HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+      HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+        CLEAR(JObject);
+        JObject:= JObject.Parse(ApiResult);
+        IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+          JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+          //MESSAGE(JSON);
+          CLEAR(JsonArray);
+          JObject := JObject.Parse(JSON);
+          PstdSalesCrMemoHdr.RESET;
+          PstdSalesCrMemoHdr.SETRANGE("No.",SalesCrMemoHeader."No.");
+          JsonArray := JsonArray.Parse(FORMAT(JObject.SelectToken('records')));
+          IF PstdSalesCrMemoHdr.FINDFIRST THEN BEGIN
+            IF FORMAT(JObject.SelectToken('records[0].referenceNo')) = PstdSalesCrMemoHdr."Reference No." THEN BEGIN
+              approveStatus := FORMAT(JObject.SelectToken('records[0].approveStatus'));
+              CASE approveStatus OF
+                '101':
+                  BEGIN
+                    PstdSalesCrMemoHdr."Refund Invoice No." := FORMAT(JObject.SelectToken('records[0].invoiceNo'));
+                    PstdSalesCrMemoHdr.MODIFY;
+                    MESSAGE(Text004,PstdSalesCrMemoHdr."Reference No.",'Approved');
+                  END;
+                '102':
+                  BEGIN
+                    MESSAGE(Text004,PstdSalesCrMemoHdr."Reference No.",'Submitted');
+                  END;
+                '103':
+                  BEGIN
+                    MESSAGE(Text004,PstdSalesCrMemoHdr."Reference No.",'Rejected');
+                  END;
+              END;
+            END;
+          END;
+        END ELSE BEGIN
+          ERROR(Text000,SalesCrMemoHeader."Reference No.",FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    PROCEDURE GoodId@100000004(ItemCode@100000034 : Code[20];Type@100000042 : 'Item,G/L Account,Resource,Fixed Asset';BatchUpload@100000041 : Boolean) ReturnValue : Text;
+    VAR
+      CompanyInformation@100000033 : Record 79;
+      HttpWebRequestMgt@100000032 : Codeunit 1297;
+      TempBlob@100000031 : Record 99008535;
+      Instr@100000030 : InStream;
+      HttpStatusCode@100000029 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000028 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      itemCount@100000027 : Integer;
+      EFRISSetup@100000026 : Record 51402259;
+      EFRISCodeMapping@100000025 : Record 51402260;
+      StringWriter@100000024 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilder@100000023 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000022 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000021 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000020 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000019 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000018 : Text;
+      Contact@100000017 : Record 5050;
+      Customer@100000016 : Record 18;
+      SalesLine@100000015 : Record 37;
+      computedTax@100000014 : Decimal;
+      Resource@100000013 : Record 156;
+      totalGrossAmount@100000012 : Decimal;
+      totalNetAmount@100000011 : Decimal;
+      totalTaxAmount@100000010 : Decimal;
+      bytes@100000009 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000008 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000007 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000006 : Text;
+      TestFile@100000005 : File;
+      dataExchange@100000003 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000001 : Text;
+      WebException@100000000 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      Base64Convert@100000035 : Codeunit 51402208;
+      EncodedJson@100000036 : Text;
+      StringBuilderJSON@100000037 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JObject@100000038 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      JsonArray@100000039 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JArray";
+      Text000@100000040 : TextConst 'ENU=Good %1 has not been created, Error message %2';
+      Text001@100000004 : TextConst 'ENU=Good Commodity Id doesn''t Exist';
+      GLAccount@100000043 : Record 15;
+      Item@100000044 : Record 27;
+      Text002@100000045 : TextConst 'ENU=Inventory for item %1 cannot be negative';
+      FixedAsset@100000046 : Record 5600;
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+      ReturnValue := '';
+      //Capture Resource Details
+      createJSONAttribute('pageNo','1',JSONTextWriter);
+      createJSONAttribute('goodsCode',ItemCode,JSONTextWriter);
+      createJSONAttribute('pageSize','10',JSONTextWriter);
+      //End Capture Details
+      JSONTextWriter.WriteEndObject;
+      JSON := StringBuilder.ToString;
+      EncodedJson := Base64Convert.TextToBase64String(StringBuilder.ToString);
+
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+        JSONTextWriter.WritePropertyName('data');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('content',EncodedJson,JSONTextWriter);
+          createJSONAttribute('signature','',JSONTextWriter);
+          JSONTextWriter.WritePropertyName('dataDescription');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('codeType','0',JSONTextWriter);
+            createJSONAttribute('encryptCode','0',JSONTextWriter);
+            createJSONAttribute('zipCode','0',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WritePropertyName('globalInfo');
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+          dataExchange := CREATEGUID;
+          dataExchange := DELCHR(dataExchange, '=', '{}-01');
+          dataExchange := COPYSTR(dataExchange, 1, 15);
+          createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+          createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('interfaceCode',EFRISSetup."Item Id Interface Code",JSONTextWriter);
+          TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+          createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+          createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+          createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+          createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+          createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+          createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+          createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+          JSONTextWriter.WritePropertyName('extent');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+            createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WritePropertyName('returnStateInfo');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('returnCode','',JSONTextWriter);
+          createJSONAttribute('returnMessage','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+
+      JSONTextWriter.WriteEndObject;
+
+      HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+      HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+        CLEAR(JObject);
+        JObject:= JObject.Parse(ApiResult);
+        IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+          JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+          CLEAR(JsonArray);
+          JObject:= JObject.Parse(Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content'))));
+          CASE Type OF
+            Type::"G/L Account":
+              BEGIN
+                GLAccount.RESET;
+                GLAccount.SETRANGE("No.",ItemCode);
+                IF GLAccount.FINDFIRST THEN BEGIN
+                  ReturnValue := FORMAT(JObject.SelectToken('records[0].id'));
+                  IF ReturnValue <> 'null' THEN BEGIN
+                    GLAccount."Commodity Category Id" := FORMAT(JObject.SelectToken('records[0].id'));
+                    IF FORMAT(JObject.SelectToken('records[0].isExempt')) = '101' THEN
+                      GLAccount.Exempted := TRUE;
+                    IF FORMAT(JObject.SelectToken('records[0].isZeroRate')) = '101' THEN
+                      GLAccount."Zero Rate" := TRUE;
+                    GLAccount.MODIFY;
+                  END ELSE BEGIN
+                    IF BatchUpload = FALSE THEN BEGIN
+                      ERROR(Text001);
+                    END ELSE BEGIN
+                      GLAccount."EFRIS Error" := STRSUBSTNO(Text002, ItemCode);
+                      GLAccount.MODIFY;
+                    END;
+                  END;
+                END;
+              END;
+            Type::Item:
+              BEGIN
+                Item.RESET;
+                Item.SETRANGE("No.",ItemCode);
+                IF Item.FINDFIRST THEN BEGIN
+                  ReturnValue := FORMAT(JObject.SelectToken('records[0].id'));
+                  IF ReturnValue <> 'null' THEN BEGIN
+                    Item."Commodity Category Id" := FORMAT(JObject.SelectToken('records[0].id'));
+                    IF FORMAT(JObject.SelectToken('records[0].isExempt')) = '101' THEN
+                      Item.Exempted := TRUE;
+                    IF FORMAT(JObject.SelectToken('records[0].isZeroRate')) = '101' THEN
+                      Item."Zero Rate" := TRUE;
+                    Item.MODIFY;
+                    Item.CALCFIELDS(Inventory);
+                    IF Item.Inventory > 0 THEN BEGIN
+                      UpdateItemStock(Item."No.", Item.Inventory, BatchUpload, Type::Item)
+                    END ELSE BEGIN
+                      IF BatchUpload = FALSE THEN BEGIN
+                        ERROR(Text002, ItemCode)
+                      END ELSE BEGIN
+                        Item."EFRIS Error" := STRSUBSTNO(Text002, ItemCode);
+                        Item.MODIFY;
+                      END;
+                    END;
+                  END ELSE BEGIN
+                    IF BatchUpload = FALSE THEN BEGIN
+                      ERROR(Text001);
+                    END ELSE BEGIN
+                      Item."EFRIS Error" := STRSUBSTNO(Text002, ItemCode);
+                      Item.MODIFY;
+                    END;
+                  END;
+                END;
+              END;
+            Type::Resource:
+              BEGIN
+                Resource.RESET;
+                Resource.SETRANGE("No.",ItemCode);
+                IF Resource.FINDFIRST THEN BEGIN
+                  ReturnValue := FORMAT(JObject.SelectToken('records[0].id'));
+                  IF ReturnValue <> 'null' THEN BEGIN
+                    Resource."Commodity Category Id" := FORMAT(JObject.SelectToken('records[0].id'));
+                    IF FORMAT(JObject.SelectToken('records[0].isExempt')) = '101' THEN
+                      Resource.Exempted := TRUE;
+                    IF FORMAT(JObject.SelectToken('records[0].isZeroRate')) = '101' THEN
+                      Resource."Zero Rate" := TRUE;
+                    Resource.MODIFY;
+                    UpdateItemStock(Resource."No.", 1, BatchUpload, Type::"Fixed Asset")
+                  END ELSE BEGIN
+                    IF BatchUpload = FALSE THEN BEGIN
+                      ERROR(Text001);
+                    END ELSE BEGIN
+                      Resource."EFRIS Error" := STRSUBSTNO(Text002, ItemCode);
+                      Resource.MODIFY;
+                    END;
+                  END;
+                END;
+              END;
+            Type::"Fixed Asset":
+              BEGIN
+                FixedAsset.RESET;
+                FixedAsset.SETRANGE("No.",ItemCode);
+                IF FixedAsset.FINDFIRST THEN BEGIN
+                  ReturnValue := FORMAT(JObject.SelectToken('records[0].id'));
+                  IF ReturnValue <> 'null' THEN BEGIN
+                    FixedAsset."Commodity Category Id" := FORMAT(JObject.SelectToken('records[0].id'));
+                    IF FORMAT(JObject.SelectToken('records[0].isExempt')) = '101' THEN
+                      FixedAsset.Exempted := TRUE;
+                    IF FORMAT(JObject.SelectToken('records[0].isZeroRate')) = '101' THEN
+                      FixedAsset."Zero Rate" := TRUE;
+                    Resource.MODIFY;
+                  END ELSE BEGIN
+                    IF BatchUpload = FALSE THEN BEGIN
+                      ERROR(Text001);
+                    END ELSE BEGIN
+                      FixedAsset."EFRIS Error" := STRSUBSTNO(Text002, ItemCode);
+                      FixedAsset.MODIFY;
+                    END;
+                  END;
+                END;
+              END;
+
+          END;
+        END ELSE BEGIN
+          ERROR(Text000,ItemCode,FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    PROCEDURE GetEfrisDetails@100000009(VAR SalesInvoiceHeader@100000043 : Record 112);
+    VAR
+      CompanyInformation@100000033 : Record 79;
+      HttpWebRequestMgt@100000032 : Codeunit 1297;
+      TempBlob@100000031 : Record 99008535;
+      Instr@100000030 : InStream;
+      HttpStatusCode@100000029 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000028 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      itemCount@100000027 : Integer;
+      EFRISSetup@100000026 : Record 51402259;
+      EFRISCodeMapping@100000025 : Record 51402260;
+      StringWriter@100000024 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilder@100000023 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000022 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000021 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000020 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000019 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000018 : Text;
+      Contact@100000017 : Record 5050;
+      Customer@100000016 : Record 18;
+      SalesLine@100000015 : Record 37;
+      computedTax@100000014 : Decimal;
+      Resource@100000013 : Record 156;
+      totalGrossAmount@100000012 : Decimal;
+      totalNetAmount@100000011 : Decimal;
+      totalTaxAmount@100000010 : Decimal;
+      bytes@100000009 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000008 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000007 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000006 : Text;
+      TestFile@100000005 : File;
+      dataExchange@100000003 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000001 : Text;
+      WebException@100000000 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      Base64Convert@100000035 : Codeunit 51402208;
+      EncodedJson@100000036 : Text;
+      StringBuilderJSON@100000037 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JObject@100000038 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      JsonArray@100000039 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JArray";
+      Text000@100000040 : TextConst 'ENU=Tin Validation %1 has failed, Error message %2';
+      Text001@100000004 : TextConst 'ENU=Tax payer business name %1 is not same as customer name %2 for Tin %3';
+      StringBuilderResponse@100000034 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      WebRequestHelper@100000041 : Codeunit 1299;
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+      //Capture Resource Details
+      createJSONAttribute('invoiceNo',SalesInvoiceHeader."URA Invoice No.",JSONTextWriter);
+      //End Capture Details
+      JSONTextWriter.WriteEndObject;
+      JSON := StringBuilder.ToString;
+      EncodedJson := Base64Convert.TextToBase64String(StringBuilder.ToString);
+
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+        JSONTextWriter.WritePropertyName('data');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('content',EncodedJson,JSONTextWriter);
+          createJSONAttribute('signature','',JSONTextWriter);
+          JSONTextWriter.WritePropertyName('dataDescription');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('codeType','0',JSONTextWriter);
+            createJSONAttribute('encryptCode','0',JSONTextWriter);
+            createJSONAttribute('zipCode','0',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WritePropertyName('globalInfo');
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+          dataExchange := CREATEGUID;
+          dataExchange := DELCHR(dataExchange, '=', '{}-01');
+          dataExchange := COPYSTR(dataExchange, 1, 15);
+          createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+          createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('interfaceCode',EFRISSetup."Invoice Id Interface Code",JSONTextWriter);
+          TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+          createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+          createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+          createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+          createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+          createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+          createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+          createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+          JSONTextWriter.WritePropertyName('extent');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+            createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WritePropertyName('returnStateInfo');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('returnCode','',JSONTextWriter);
+          createJSONAttribute('returnMessage','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+
+      JSONTextWriter.WriteEndObject;
+
+      HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+      HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+        JObject:= JObject.Parse(ApiResult);
+        StringBuilderResponse := StringBuilderResponse.StringBuilder;
+        StringBuilderResponse.Append(ApiResult);
+
+
+        IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+          IF FORMAT(JObject.SelectToken('data.dataDescription.zipCode')) = '1' THEN BEGIN
+
+            HttpWebRequestMgt.Initialize(EFRISSetup."Decompress API");
+            HttpWebRequestMgt.DisableUI;
+            HttpWebRequestMgt.SetMethod('POST');
+            HttpWebRequestMgt.SetContentType('application/json');
+            HttpWebRequestMgt.SetReturnType('application/json');
+            HttpWebRequestMgt.AddBodyAsAsciiText(FORMAT(JObject.SelectToken('data.content')));
+
+            TempBlob.INIT;
+            TempBlob.Blob.CREATEINSTREAM(Instr);
+            IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+              ApiResult := TempBlob.ReadAsText('');
+              CLEAR(JObject);
+              JObject:= JObject.Parse(ApiResult);
+              SalesInvoiceHeader."QR Code" := FORMAT(JObject.SelectToken('summary.qrCode'));
+              SalesInvoiceHeader."URA Invoice Id" := FORMAT(JObject.SelectToken('basicInformation.invoiceId'));
+              SalesInvoiceHeader."Anti-Fake Code" := FORMAT(JObject.SelectToken('basicInformation.antifakeCode'));
+              SalesInvoiceHeader."URA Invoice No." := FORMAT(JObject.SelectToken('basicInformation.invoiceNo'));
+              SalesInvoiceHeader.MODIFY;
+            END ELSE BEGIN
+              //ERROR(Text005);
+            END;
+          END ELSE BEGIN
+            JObject:= JObject.Parse(ApiResult);
+            JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+            CLEAR(JObject);
+            JObject:= JObject.Parse(JSON);
+            SalesInvoiceHeader."QR Code" := FORMAT(JObject.SelectToken('summary.qrCode'));
+            SalesInvoiceHeader."URA Invoice Id" := FORMAT(JObject.SelectToken('basicInformation.invoiceId'));
+            SalesInvoiceHeader."Anti-Fake Code" := FORMAT(JObject.SelectToken('basicInformation.antifakeCode'));
+            SalesInvoiceHeader."URA Invoice No." := FORMAT(JObject.SelectToken('basicInformation.invoiceNo'));
+            SalesInvoiceHeader.MODIFY;
+          END;
+        END ELSE BEGIN
+          ERROR(Text001,SalesInvoiceHeader."No.",FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    PROCEDURE UpdateItemStock@100000005(ItemCode@100000034 : Code[20];Quantity@100000042 : Decimal;BatchUpload@100000043 : Boolean;Type@100000044 : 'Item,Fixed Asset');
+    VAR
+      CompanyInformation@100000033 : Record 79;
+      HttpWebRequestMgt@100000032 : Codeunit 1297;
+      TempBlob@100000031 : Record 99008535;
+      Instr@100000030 : InStream;
+      HttpStatusCode@100000029 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000028 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      itemCount@100000027 : Integer;
+      EFRISSetup@100000026 : Record 51402259;
+      EFRISCodeMapping@100000025 : Record 51402260;
+      StringWriter@100000024 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilder@100000023 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000022 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000021 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000020 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000019 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000018 : Text;
+      Contact@100000017 : Record 5050;
+      Customer@100000016 : Record 18;
+      SalesLine@100000015 : Record 37;
+      computedTax@100000014 : Decimal;
+      Item@100000013 : Record 27;
+      totalGrossAmount@100000012 : Decimal;
+      totalNetAmount@100000011 : Decimal;
+      totalTaxAmount@100000010 : Decimal;
+      bytes@100000009 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000008 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000007 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000006 : Text;
+      TestFile@100000005 : File;
+      dataExchange@100000003 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000001 : Text;
+      WebException@100000000 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      Base64Convert@100000035 : Codeunit 51402208;
+      EncodedJson@100000036 : Text;
+      StringBuilderJSON@100000037 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JObject@100000038 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      JsonArray@100000039 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JArray";
+      Text000@100000040 : TextConst 'ENU=Item %1 stock has not been updated, Error message %2';
+      WebRequestHelper@100000004 : Codeunit 1299;
+      Text001@100000041 : TextConst 'ENU=No. corresponding unit of Measure code has been found for Item %1';
+      FixedAsset@100000045 : Record 5600;
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+      JSONTextWriter.WriteStartObject;
+
+      JSONTextWriter.WritePropertyName('goodsStockIn');
+      CASE Type OF
+        Type::Item:
+          BEGIN
+            Item.RESET;
+            Item.SETRANGE("No.", ItemCode);
+            IF Item.FINDFIRST THEN BEGIN
+              JSONTextWriter.WriteStartObject;
+              IF Quantity > 0 THEN BEGIN
+                createJSONAttribute('operationType','101',JSONTextWriter);
+                createJSONAttribute('stockInType','103',JSONTextWriter);
+                createJSONAttribute('adjustType','',JSONTextWriter);
+              END ELSE BEGIN
+                createJSONAttribute('operationType','102',JSONTextWriter);
+                createJSONAttribute('stockInType','',JSONTextWriter);
+                createJSONAttribute('adjustType','105',JSONTextWriter);
+              END;
+              createJSONAttribute('supplierTin','',JSONTextWriter);
+              createJSONAttribute('supplierName','',JSONTextWriter);
+              JSONTextWriter.WriteEndObject;
+
+              JSONTextWriter.WritePropertyName('goodsStockInItem');
+              JSONTextWriter.WriteStartArray;
+              JSONTextWriter.WriteStartObject;
+                createJSONAttribute('unitPrice',Item."Unit Price",JSONTextWriter);
+                createJSONAttribute('quantity',ABS(Quantity),JSONTextWriter);
+                createJSONAttribute('goodsCode',Item."No.",JSONTextWriter);
+              JSONTextWriter.WriteEndObject;  // ssg reorder
+              JSONTextWriter.WriteEndArray;
+
+            END;
+          END;
+        Type::"Fixed Asset":
+          BEGIN
+            FixedAsset.RESET;
+            FixedAsset.SETRANGE("No.", ItemCode);
+            IF FixedAsset.FINDFIRST THEN BEGIN
+              JSONTextWriter.WriteStartObject;
+              IF Quantity > 0 THEN BEGIN
+                createJSONAttribute('operationType','101',JSONTextWriter);
+                createJSONAttribute('stockInType','103',JSONTextWriter);
+                createJSONAttribute('adjustType','',JSONTextWriter);
+              END ELSE BEGIN
+                createJSONAttribute('operationType','102',JSONTextWriter);
+                createJSONAttribute('stockInType','',JSONTextWriter);
+                createJSONAttribute('adjustType','105',JSONTextWriter);
+              END;
+              createJSONAttribute('supplierTin','',JSONTextWriter);
+              createJSONAttribute('supplierName','',JSONTextWriter);
+              JSONTextWriter.WriteEndObject;
+
+              JSONTextWriter.WritePropertyName('goodsStockInItem');
+              JSONTextWriter.WriteStartArray;
+              JSONTextWriter.WriteStartObject;
+                createJSONAttribute('unitPrice',FixedAsset."Unit Price",JSONTextWriter);
+                createJSONAttribute('quantity',ABS(Quantity),JSONTextWriter);
+                createJSONAttribute('goodsCode',Item."No.",JSONTextWriter);
+              JSONTextWriter.WriteEndObject; // ssg reorder
+              JSONTextWriter.WriteEndArray;
+            END;
+          END;
+
+      END;
+      //End Capture Details
+      JSON := StringBuilder.ToString;
+      EncodedJson := Base64Convert.TextToBase64String(StringBuilder.ToString);
+
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      CLEAR(StringWriter); // ssg
+
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+        JSONTextWriter.WritePropertyName('data');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('content',EncodedJson,JSONTextWriter);
+          createJSONAttribute('signature','',JSONTextWriter);
+          JSONTextWriter.WritePropertyName('dataDescription');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('codeType','0',JSONTextWriter);
+            createJSONAttribute('encryptCode','0',JSONTextWriter);
+            createJSONAttribute('zipCode','0',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WritePropertyName('globalInfo');
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+          dataExchange := CREATEGUID;
+          dataExchange := DELCHR(dataExchange, '=', '{}-01');
+          dataExchange := COPYSTR(dataExchange, 1, 15);
+          createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+          createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('interfaceCode',EFRISSetup."Stock Update Interface Code",JSONTextWriter);
+          TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+          createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+          createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+          createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+          createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+          createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+          createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+          createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+          JSONTextWriter.WritePropertyName('extent');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+            createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WritePropertyName('returnStateInfo');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('returnCode','',JSONTextWriter);
+          createJSONAttribute('returnMessage','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+
+      JSONTextWriter.WriteEndObject;
+
+      HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+      HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+        CLEAR(JObject);
+        JObject:= JObject.Parse(ApiResult);
+        IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+          JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+          CLEAR(JObject);
+          JObject:= JsonArray.Parse(JSON);
+          IF FORMAT(JObject.SelectToken('[0].returnCode')) <> 'null' THEN BEGIN
+            IF BatchUpload = FALSE THEN BEGIN
+              ERROR(FORMAT(JObject.SelectToken('[0].returnMessage')));
+            END ELSE BEGIN
+              CASE Type OF
+                Type::Item:
+                  BEGIN
+                    Item.RESET;
+                    Item.SETRANGE("No.", ItemCode);
+                    IF Item.FINDFIRST THEN BEGIN
+                      Item."EFRIS Error" := FORMAT(JObject.SelectToken('[0].returnMessage'));
+                      Item.MODIFY;
+                    END;
+                  END;
+                Type::"Fixed Asset":
+                  BEGIN
+                    FixedAsset.RESET;
+                    FixedAsset.SETRANGE("No.", ItemCode);
+                    IF FixedAsset.FINDFIRST THEN BEGIN
+                      FixedAsset."EFRIS Error" := FORMAT(JObject.SelectToken('[0].returnMessage'));
+                      FixedAsset.MODIFY;
+                    END;
+                  END;
+              END;
+            END;
+          END;
+        END ELSE BEGIN
+          IF BatchUpload = FALSE THEN BEGIN
+            ERROR(Text000,ItemCode,FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+          END ELSE BEGIN
+            CASE Type OF
+              Type::Item:
+                BEGIN
+                  Item.RESET;
+                  Item.SETRANGE("No.", ItemCode);
+                  IF Item.FINDFIRST THEN BEGIN
+                    Item."EFRIS Error" := STRSUBSTNO(Text000,ItemCode,FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+                    Item.MODIFY;
+                  END;
+                END;
+              Type::"Fixed Asset":
+                BEGIN
+                  FixedAsset.RESET;
+                  FixedAsset.SETRANGE("No.", ItemCode);
+                  IF FixedAsset.FINDFIRST THEN BEGIN
+                    FixedAsset."EFRIS Error" := STRSUBSTNO(Text000,ItemCode,FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+                    FixedAsset.MODIFY;
+                  END;
+                END;
+            END;
+          END;
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    PROCEDURE QueryTaxPayerStatus@100000007(Tin@100000041 : Text[250]);
+    VAR
+      CompanyInformation@100000033 : Record 79;
+      HttpWebRequestMgt@100000032 : Codeunit 1297;
+      TempBlob@100000031 : Record 99008535;
+      Instr@100000030 : InStream;
+      HttpStatusCode@100000029 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.HttpStatusCode";
+      ResponseHeaders@100000028 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Collections.Specialized.NameValueCollection";
+      itemCount@100000027 : Integer;
+      EFRISSetup@100000026 : Record 51402259;
+      EFRISCodeMapping@100000025 : Record 51402260;
+      StringWriter@100000024 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilder@100000023 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriter@100000022 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      StringWriterArray@100000021 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.StringWriter";
+      StringBuilderArray@100000020 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JSONTextWriterArray@100000019 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.JsonTextWriter";
+      JSON@100000018 : Text;
+      Contact@100000017 : Record 5050;
+      SalesLine@100000015 : Record 37;
+      computedTax@100000014 : Decimal;
+      Resource@100000013 : Record 156;
+      totalGrossAmount@100000012 : Decimal;
+      totalNetAmount@100000011 : Decimal;
+      totalTaxAmount@100000010 : Decimal;
+      bytes@100000009 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      convert@100000008 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      unicode@100000007 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.ASCIIEncoding";
+      FileName@100000006 : Text;
+      TestFile@100000005 : File;
+      dataExchange@100000003 : Text;
+      TempTime@100000002 : Text;
+      ApiResult@100000001 : Text;
+      WebException@100000000 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Net.WebException";
+      Base64Convert@100000035 : Codeunit 51402208;
+      EncodedJson@100000036 : Text;
+      StringBuilderJSON@100000037 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      JObject@100000038 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JObject";
+      JsonArray@100000039 : DotNet "'Newtonsoft.Json'.Newtonsoft.Json.Linq.JArray";
+      Text000@100000004 : TextConst 'ENU="Tax payer with Tin %1 has a VAT Category %2 on EFRIS "';
+      WebRequestHelper@100000044 : Codeunit 1299;
+      Value@100000016 : Text;
+    BEGIN
+      EFRISSetup.GET;
+      CompanyInformation.GET;
+
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+      //Capture Resource Details
+      createJSONAttribute('tin',Tin,JSONTextWriter);
+      //End Capture Details
+      JSONTextWriter.WriteEndObject;
+      JSON := StringBuilder.ToString;
+      EncodedJson := Base64Convert.TextToBase64String(StringBuilder.ToString);
+
+      //Capture All Final Details
+      CLEAR(StringBuilder);
+      JSONTextWriter.Flush;
+      StringBuilder := StringBuilder.StringBuilder;
+      StringWriter := StringWriter.StringWriter(StringBuilder);
+      JSONTextWriter := JSONTextWriter.JsonTextWriter(StringWriter);
+
+      JSONTextWriter.WriteStartObject;
+        JSONTextWriter.WritePropertyName('data');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('content',EncodedJson,JSONTextWriter);
+          createJSONAttribute('signature','',JSONTextWriter);
+          JSONTextWriter.WritePropertyName('dataDescription');
+          JSONTextWriter.WriteStartObject;
+            createJSONAttribute('codeType','0',JSONTextWriter);
+            createJSONAttribute('encryptCode','0',JSONTextWriter);
+            createJSONAttribute('zipCode','0',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+
+        JSONTextWriter.WritePropertyName('globalInfo');
+          JSONTextWriter.WriteStartObject;
+          createJSONAttribute('appId',EFRISSetup."App Id",JSONTextWriter);
+          dataExchange := CREATEGUID;
+          dataExchange := DELCHR(dataExchange, '=', '{}-01');
+          dataExchange := COPYSTR(dataExchange, 1, 15);
+          createJSONAttribute('dataExchangeId',dataExchange,JSONTextWriter);
+          createJSONAttribute('deviceMac','FFS791JDJXW',JSONTextWriter);
+          createJSONAttribute('deviceNo',EFRISSetup."Device No.",JSONTextWriter);
+          createJSONAttribute('interfaceCode',EFRISSetup."EFRIS Taxpayer Status",JSONTextWriter);
+          TempTime := FORMAT(CURRENTDATETIME, 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2>');
+          createJSONAttribute('requestTime',TempTime,JSONTextWriter);
+          createJSONAttribute('responseCode',EFRISSetup."Response Code",JSONTextWriter);
+          createJSONAttribute('requestCode',EFRISSetup."Request Code",JSONTextWriter);
+          createJSONAttribute('taxPayerID',EFRISSetup."Tax Payer Id",JSONTextWriter);
+          createJSONAttribute('tin',EFRISSetup.Tin,JSONTextWriter);
+          createJSONAttribute('userName',EFRISSetup."User Name",JSONTextWriter);
+          createJSONAttribute('version',EFRISSetup."URA Version",JSONTextWriter);
+          createJSONAttribute('longitude',EFRISSetup.Longitude,JSONTextWriter);
+          createJSONAttribute('latitude',EFRISSetup.Latitude,JSONTextWriter);
+          JSONTextWriter.WritePropertyName('extent');
+            JSONTextWriter.WriteStartObject;
+            createJSONAttribute('responseDateFormat','dd/MM/yyyy',JSONTextWriter);
+            createJSONAttribute('responseTimeFormat','dd/MM/yyyy HH:mm:ss',JSONTextWriter);
+          JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WriteEndObject;
+        JSONTextWriter.WritePropertyName('returnStateInfo');
+        JSONTextWriter.WriteStartObject;
+          createJSONAttribute('returnCode','',JSONTextWriter);
+          createJSONAttribute('returnMessage','',JSONTextWriter);
+        JSONTextWriter.WriteEndObject;
+
+      JSONTextWriter.WriteEndObject;
+
+      HttpWebRequestMgt.Initialize(EFRISSetup."URA API Endpoint");
+      HttpWebRequestMgt.DisableUI;
+      HttpWebRequestMgt.SetMethod('POST');
+      HttpWebRequestMgt.SetContentType('application/json');
+      HttpWebRequestMgt.SetReturnType('application/json');
+      HttpWebRequestMgt.AddBodyAsAsciiText(StringBuilder.ToString);
+      TempBlob.INIT;
+      TempBlob.Blob.CREATEINSTREAM(Instr);
+
+      IF HttpWebRequestMgt.GetResponse(Instr,HttpStatusCode,ResponseHeaders) THEN BEGIN
+        ApiResult := TempBlob.ReadAsText('');
+        CLEAR(JObject);
+        JObject:= JObject.Parse(ApiResult);
+        IF FORMAT(JObject.SelectToken('returnStateInfo.returnCode')) = '00' THEN BEGIN
+          JSON := Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content')));
+          CLEAR(JsonArray);
+          JObject:= JObject.Parse(Base64Convert.FromBase64StringToText(FORMAT(JObject.SelectToken('data.content'))));
+          Value := FORMAT(JObject.SelectToken('taxpayerType'));
+          CASE Value OF
+            '101':
+                BEGIN
+                    MESSAGE(Text000, Tin, 'Normal');
+                END;
+            '102':
+                BEGIN
+                    MESSAGE(Text000, Tin, 'Exempt');
+                END;
+            '103':
+                BEGIN
+                    MESSAGE(Text000, Tin, 'Deemed');
+                END;
+          END;
+        END ELSE BEGIN
+          ERROR(Text000,Tin,FORMAT(JObject.SelectToken('returnStateInfo.returnMessage')));
+        END;
+      END ELSE BEGIN
+        ERROR(FORMAT(HttpWebRequestMgt.GetWebResponseError(WebException, EFRISSetup."URA API Endpoint")));
+      END;
+    END;
+
+    PROCEDURE MarkOrderLines@100000008(SalesInvHdrRec@100000000 : Code[50];SalesCrMemoLine@100000003 : Record 37) : Integer;
+    VAR
+      SalesInvoiceLine@100000001 : Record 113;
+      OrderNo@100000002 : Integer;
+      Found@100000004 : Boolean;
+      PstdSalesInv@100000005 : Record 113;
+      LineCount@100000006 : Integer;
+    BEGIN
+      OrderNo := 0;
+      Found := FALSE;
+      SalesInvoiceLine.RESET;
+      SalesInvoiceLine.SETRANGE("Document No.", SalesInvHdrRec);
+      IF SalesInvoiceLine.FINDSET THEN BEGIN
+        REPEAT
+          IF SalesInvoiceLine."Line Discount %" <> 0 THEN BEGIN
+            IF (SalesInvoiceLine."No." = SalesCrMemoLine."No.") AND (SalesInvoiceLine.Type = SalesCrMemoLine.Type) AND
+            (SalesInvoiceLine."Outlet/SubAgent No." = SalesCrMemoLine."Outlet/SubAgent No.") AND (SalesInvoiceLine."Dimension Set ID" = SalesCrMemoLine."Dimension Set ID")
+            AND (SalesInvoiceLine."Sell-to Customer No." = SalesCrMemoLine."Sell-to Customer No.") AND (SalesInvoiceLine."Booking Name" = SalesCrMemoLine."Booking Name") THEN BEGIN
+              Found := TRUE;
+            END ELSE BEGIN
+              OrderNo := OrderNo + 2;
+            END;
+          END ELSE BEGIN
+            //Nested IFs
+            IF (SalesInvoiceLine."No." = SalesCrMemoLine."No.") AND (SalesInvoiceLine.Type = SalesCrMemoLine.Type) AND
+            (SalesInvoiceLine."Outlet/SubAgent No." = SalesCrMemoLine."Outlet/SubAgent No.") AND (SalesInvoiceLine."Dimension Set ID" = SalesCrMemoLine."Dimension Set ID")
+            AND (SalesInvoiceLine."Sell-to Customer No." = SalesCrMemoLine."Sell-to Customer No.") AND (SalesInvoiceLine."Booking Name" = SalesCrMemoLine."Booking Name") THEN BEGIN
+              Found := TRUE;
+            END ELSE BEGIN
+              OrderNo := OrderNo + 1;
+            END;
+          END;
+        UNTIL (SalesInvoiceLine.NEXT = 0) OR (Found = TRUE);
+      END;
+      EXIT(OrderNo);
+    END;
+
+    BEGIN
+    END.
+  }
+}
+
