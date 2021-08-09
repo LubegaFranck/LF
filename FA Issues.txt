@@ -1,0 +1,30 @@
+BOOK VALUE 
+	doesnt show (netoff) write downsin acquistion colums.
+	doesnt (netoff) show writedowns in the the deprecriation column
+	generator house lira.
+	Acq,wd,apre same gl acc.(18320) report has acquisition and apreciation.
+
+
+Disposal when an asset has Apreciation and writedown
+		(4638)
+	crediting L&B by appreciation 
+	then it debits L&B by apreciation.(wrong)  not suppossed to debit.(supposed to debit asset disposal account disposal 30180)
+	System doesnt show how the write down has been handled from the fa and gl.
+	how should the writedown be handle?
+		acq+appr-writedown = net acq cost (to be dr on 30180 cr on L&18320)
+
+
+Acquisition Report.
+	Reads only the first acquisition report.
+	required should be net cost during the year.(all acqusition+credit memos,writedown+appreciation) eg ubh 
+problem with our interpretation of acquisition vs appreciation so we instead  use aquistion instead of appreciation.
+can an asset be acquired twice?
+	an asset can ony be aquired once but can be capitalised more than once.
+
+	
+
+
+
+
+		
+
